@@ -63,6 +63,12 @@ public DMG. Signing keys and notarization credentials are not included. The
 checked-in Sparkle key is public and cannot sign updates. For a fork, configure
 your own update feed and signing key before distribution.
 
+The protected GitHub release workflow takes an exact tag and explicit version/build,
+builds the checked-in Memory Pack helper, and retains a signed, notarized candidate
+and signed Sparkle feed after validating their metadata. It requires the six
+Developer ID/notary inputs and `SPARKLE_ED25519_PRIVATE_KEY` in the
+`production-release` environment. It does not publish the candidate or deploy the site.
+
 ```sh
 swift test
 (cd scripts && python3 -m unittest test_sparkle_support)

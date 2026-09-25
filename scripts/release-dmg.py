@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import sparkle_support
@@ -29,7 +30,23 @@ def main():
     parser.add_argument("--identity", required=True, help="Developer ID Application identity name or certificate hash")
     parser.add_argument("--output", type=Path, required=True, help="New output directory; existing paths are never overwritten")
     parser.add_argument("--notary-profile", help="Existing Keychain profile name; never pass credentials here")
+    parser.add_argument("--notary-api-key", type=Path, help="Path to protected App Store Connect API key")
+    parser.add_argument("--notary-key-id", help="App Store Connect API key identifier")
+    parser.add_argument("--notary-issuer-id", help="App Store Connect issuer identifier")
+    parser.add_argument("--version", required=True, help="Release version, for example 0.1.3")
+    parser.add_argument("--build", type=int, required=True, help="Release build number")
+    parser.add_argument("--source-sha", required=True, help="Exact tagged source commit")
     args = parser.parse_args()
+    if not all(part.isdigit() for part in args.version.split(".")) or args.build < 1:
+        parser.error("Version must be numeric and build must be positive")
+    if not re.fullmatch(r"[0-9a-f]{40}", args.source_sha):
+        parser.error("--source-sha must be a full commit hash")
+    source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    if source_sha != args.source_sha:
+        parser.error("--source-sha does not match the checked-out source")
+    api_auth = [args.notary_api_key, args.notary_key_id, args.notary_issuer_id]
+    if (args.notary_profile and any(api_auth)) or (any(api_auth) and not all(api_auth)):
+        parser.error("Pass a Keychain profile or the complete API key, key ID, and issuer ID")
     run("python3", ROOT / "scripts" / "package-app.py", "--check")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -50,7 +67,16 @@ def main():
     for source, name in [("THIRD_PARTY_NOTICES.txt", "MemoryPack-THIRD_PARTY_NOTICES.txt"),
                          ("provenance.json", "MemoryPack-provenance.json")]:
         shutil.copyfile(ROOT / "artifacts/MemoryPackSupport" / source, app / "Contents/Resources" / name)
-    info = plistlib.loads((ROOT / "artifacts/StorageDaddy.app/Contents/Info.plist").read_bytes())
+    # The release must not inherit version/build from an untracked local app.
+    info = {
+        "CFBundleExecutable": "StorageDaddy", "CFBundleIdentifier": "local.fleet.storagedaddy",
+        "CFBundleName": "storagedaddy", "CFBundleDisplayName": "storagedaddy",
+        "CFBundlePackageType": "APPL", "CFBundleShortVersionString": args.version,
+        "LSApplicationCategoryType": "public.app-category.utilities",
+        "CFBundleVersion": str(args.build), "CFBundleIconFile": "StorageDaddy.icns",
+        "LSMinimumSystemVersion": "14.0", "NSHighResolutionCapable": True,
+        "NSPrincipalClass": "NSApplication", **sparkle_support.configuration(),
+    }
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
     sparkle_support.embed(app)
     sparkle_support.sign(app, args.identity)
@@ -73,13 +99,15 @@ def main():
         "stapled": False, "publicReady": False,
         "sourceBinarySha256": sha256(binary), "helperSha256": sha256(helper),
         "dmgSha256": sha256(dmg), "dmgBytes": dmg.stat().st_size,
-        "sourceState": "Local source snapshot; not committed or pushed",
+        "sourceSha": args.source_sha,
     }
     receipt_path = output / "release-receipt.json"
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
-    if args.notary_profile:
-        result = subprocess.run(["xcrun", "notarytool", "submit", str(dmg),
-                                 "--keychain-profile", args.notary_profile,
+    if args.notary_profile or all(api_auth):
+        auth = (["--keychain-profile", args.notary_profile] if args.notary_profile else
+                ["--key", str(args.notary_api_key), "--key-id", args.notary_key_id,
+                 "--issuer", args.notary_issuer_id])
+        result = subprocess.run(["xcrun", "notarytool", "submit", str(dmg), *auth,
                                  "--wait", "--output-format", "json"], check=True, capture_output=True, text=True)
         notarization = json.loads(result.stdout)
         (output / "notarization.json").write_text(json.dumps(notarization, indent=2) + "\n")

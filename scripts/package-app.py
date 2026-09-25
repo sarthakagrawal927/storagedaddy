@@ -12,7 +12,13 @@ root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument("binary", nargs="?", type=Path, default=root / ".build/release/StorageDaddy")
 parser.add_argument("--check", action="store_true", help="validate prepared support without changing the app bundle")
+parser.add_argument("--version", help="Explicit release version")
+parser.add_argument("--build", type=int, help="Explicit release build number")
 args = parser.parse_args()
+if (args.version is None) != (args.build is None):
+    parser.error("--version and --build must be passed together")
+if args.version is not None and (not all(part.isdigit() for part in args.version.split(".")) or args.build < 1):
+    parser.error("Version must be numeric and build must be positive")
 binary = args.binary
 update_configuration = sparkle_support.configuration()
 if not binary.is_file():
@@ -47,7 +53,9 @@ bundle = root / "artifacts/StorageDaddy.app"
 contents = bundle / "Contents"
 previous_plist = contents / "Info.plist"
 build_number = 1
-if previous_plist.is_file():
+if args.build is not None:
+    build_number = args.build
+elif previous_plist.is_file():
     previous = plistlib.loads(previous_plist.read_bytes())
     build_number = int(previous.get("CFBundleVersion", "0")) + 1
 (contents / "MacOS").mkdir(parents=True, exist_ok=True)
@@ -71,7 +79,7 @@ with (contents / "Info.plist").open("wb") as f:
     plistlib.dump({
         "CFBundleExecutable": "StorageDaddy", "CFBundleIdentifier": "local.fleet.storagedaddy",
         "CFBundleName": "storagedaddy", "CFBundleDisplayName": "storagedaddy",
-        "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.1.3",
+        "CFBundlePackageType": "APPL", "CFBundleShortVersionString": args.version or "0.1.3",
         "LSApplicationCategoryType": "public.app-category.utilities",
         "CFBundleVersion": str(build_number), "CFBundleIconFile": "StorageDaddy.icns", "LSMinimumSystemVersion": "14.0",
         "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication", **update_configuration
