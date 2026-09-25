@@ -71,7 +71,7 @@ with (contents / "Info.plist").open("wb") as f:
     plistlib.dump({
         "CFBundleExecutable": "StorageDaddy", "CFBundleIdentifier": "local.fleet.storagedaddy",
         "CFBundleName": "storagedaddy", "CFBundleDisplayName": "storagedaddy",
-        "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.1.2",
+        "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.1.3",
         "LSApplicationCategoryType": "public.app-category.utilities",
         "CFBundleVersion": str(build_number), "CFBundleIconFile": "StorageDaddy.icns", "LSMinimumSystemVersion": "14.0",
         "NSHighResolutionCapable": True, "NSPrincipalClass": "NSApplication", **update_configuration
