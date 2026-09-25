@@ -67,7 +67,10 @@ The protected GitHub release workflow takes an exact tag and explicit version/bu
 builds the checked-in Memory Pack helper, and retains a signed, notarized candidate
 and signed Sparkle feed after validating their metadata. It requires the six
 Developer ID/notary inputs and `SPARKLE_ED25519_PRIVATE_KEY` in the
-`production-release` environment. It does not publish the candidate or deploy the site.
+`production-release` environment. A manual dispatch on `main` also deploys the
+qualified DMG and feed to the app-owned Worker, verifies their live bytes, and
+records the site manifest on `main`. The environment requires approval; ordinary
+pushes run candidate CI only. Distribution remains website-only.
 
 ```sh
 swift test
