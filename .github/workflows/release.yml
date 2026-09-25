@@ -158,7 +158,7 @@ jobs:
             --dmg "$(find "$RUNNER_TEMP/feed" -maxdepth 1 -name '*.dmg' -print -quit)" \
             --sums "$RUNNER_TEMP/feed/SHA256SUMS" \
             --notary-json "$RUNNER_TEMP/release/notarization.json" \
-            --feed "$RUNNER_TEMP/feed/appcast.xml" --previous-build "$(python3 -c 'import json; print(json.load(open("app/site/release.json"))["build"])')" \
+            --feed "$RUNNER_TEMP/feed/appcast.xml" --previous-build "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build"])' "$GITHUB_WORKSPACE/app/site/release.json")" \
             --source-sha "$SOURCE_SHA" \
             --receipt "$RUNNER_TEMP/feed/release-metadata-receipt.json"
       - name: Retain qualified release candidate
