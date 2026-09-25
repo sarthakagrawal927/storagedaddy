@@ -37,6 +37,8 @@ struct ScanWelcomeView: View {
     var later: (() -> Void)? = nil
     @State private var accessDetails = false
     @State private var accessStatus: FullDiskAccessStatus = .unknown
+    @State private var startupCapacity: StartupCapacity?
+    @State private var capacityLoaded = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -60,6 +62,16 @@ struct ScanWelcomeView: View {
                 }
                 Text("Find bulky builds, forgotten caches, installed modules and AI sessions. Your results appear as the scan runs.")
                     .font(.system(size: 15)).foregroundStyle(Tints.secondaryText).fixedSize(horizontal: false, vertical: true)
+                capacitySummary
+                HStack(spacing: 12) {
+                    Button("Scan a Disk…", systemImage: "internaldrive.fill", action: scanDisk)
+                        .buttonStyle(StorageButtonStyle(prominent: true)).controlSize(.large)
+                    Button("Quick Cache Scan", systemImage: "archivebox", action: scanCaches).controlSize(.large)
+                    Button("Scan a Folder…", systemImage: "folder.badge.plus", action: scanFolder)
+                        .controlSize(.large)
+                }
+                Text("Scan a disk for the complete storage picture. Quick Cache Scan checks only your user cache folder; Scan a Folder limits the result to one place.")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "lock.shield").foregroundStyle(Tints.mint).padding(.top, 2)
                     VStack(alignment: .leading, spacing: 7) {
@@ -69,7 +81,7 @@ struct ScanWelcomeView: View {
                         if accessStatus != .accessible {
                             HStack(spacing: 12) {
                                 Button("Set up Full Disk Access") { accessDetails.toggle() }
-                                Text("Or scan just one folder below").font(.caption).foregroundStyle(Tints.secondaryText)
+                                Text("Or scan just one folder").font(.caption).foregroundStyle(Tints.secondaryText)
                             }
                         }
                         Text(accessCoverageNote)
@@ -89,15 +101,6 @@ struct ScanWelcomeView: View {
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Tints.mint.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Tints.mint.opacity(0.2)))
-                HStack(spacing: 12) {
-                    Button("Scan a Disk…", systemImage: "internaldrive.fill", action: scanDisk)
-                        .buttonStyle(StorageButtonStyle(prominent: true)).controlSize(.large)
-                    Button("Quick Cache Scan", systemImage: "archivebox", action: scanCaches).controlSize(.large)
-                    Button("Scan a Folder…", systemImage: "folder.badge.plus", action: scanFolder)
-                        .controlSize(.large)
-                }
-                Text("Scan a disk for the complete storage picture. Quick Cache Scan checks only your user cache folder; Scan a Folder limits the result to one place.")
-                    .font(.callout).foregroundStyle(Tints.secondaryText)
                 HStack(alignment: .top, spacing: 20) {
                     step(.overview, "1. Scan", "Choose your storage")
                     step(.explore, "2. Explore", "See what takes space")
@@ -116,6 +119,65 @@ struct ScanWelcomeView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { accessStatus = FullDiskAccessProbe.status() }
         }
+        .task {
+            let volumes = await Task.detached(priority: .utility) { SystemInventory.mountedVolumes() }.value
+            guard !Task.isCancelled else { return }
+            startupCapacity = StartupCapacity(volumes: volumes)
+            capacityLoaded = true
+        }
+    }
+
+    private var capacitySummary: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("STARTUP STORAGE").font(.system(size: 11, weight: .semibold)).tracking(1.1)
+                    .foregroundStyle(Tints.secondaryText)
+                Spacer()
+                Text("macOS estimate").font(.caption).foregroundStyle(Tints.secondaryText)
+            }
+            if let capacity = startupCapacity {
+                HStack(alignment: .top, spacing: 16) {
+                    capacityMetric("Capacity", DiskFormat.bytes(capacity.total), color: .white)
+                    capacityMetric("Used", DiskFormat.bytes(capacity.used), color: Tints.mint)
+                    capacityMetric("Available", DiskFormat.bytes(capacity.available), color: Tints.electricBlue)
+                }
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 5).fill(Tints.electricBlue.opacity(0.25))
+                        RoundedRectangle(cornerRadius: 5).fill(Tints.mint)
+                            .frame(width: geometry.size.width * capacity.usedFraction)
+                    }
+                }
+                .frame(height: 10)
+                .accessibilityLabel("\(capacity.usedPercent) percent used, \(capacity.availablePercent) percent available")
+                HStack {
+                    Text("\(capacity.usedPercent)% used").foregroundStyle(Tints.mint)
+                    Spacer()
+                    Text("\(capacity.availablePercent)% available").foregroundStyle(Tints.electricBlue)
+                }
+                .font(.caption.monospacedDigit())
+            } else if capacityLoaded {
+                Text("Capacity unavailable. You can still scan a disk or folder.")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
+            } else {
+                ProgressView("Reading startup storage…").controlSize(.small)
+            }
+            Text("Used space can include purgeable data. These are disk capacity figures, not scanned file totals.")
+                .font(.caption).foregroundStyle(Tints.secondaryText)
+        }
+        .padding(16)
+        .background(Tints.mint.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Tints.mint.opacity(0.2)))
+    }
+
+    private func capacityMetric(_ label: String, _ value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value).font(.system(size: 23, weight: .semibold, design: .rounded))
+                .monospacedDigit().foregroundStyle(color).minimumScaleFactor(0.75).lineLimit(1)
+            Text(label).font(.caption).foregroundStyle(Tints.secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     private var accessStatusTitle: String {
@@ -129,7 +191,7 @@ struct ScanWelcomeView: View {
     private var accessStatusDescription: String {
         switch accessStatus {
         case .accessible:
-            "Protected-folder access is available. Choose what to scan below."
+            "Protected-folder access is available. Choose a scan option above."
         case .limited:
             "A protected location was blocked by macOS. Enable storagedaddy in System Settings for broader coverage."
         case .unknown:
@@ -160,4 +222,23 @@ struct ScanWelcomeView: View {
             Text(subtitle).font(.system(size: 12)).foregroundStyle(Tints.secondaryText)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+struct StartupCapacity: Sendable {
+    let total: Int64
+    let available: Int64
+
+    init?(volumes: [MountedVolumeInfo]) {
+        guard let volume = volumes.first(where: \.isStartupData)
+                ?? volumes.first(where: { $0.mountPoint == "/" }),
+              let total = volume.totalCapacity, total > 0,
+              let available = volume.availableCapacity, (0...total).contains(available) else { return nil }
+        self.total = total
+        self.available = available
+    }
+
+    var used: Int64 { total - available }
+    var usedFraction: Double { Double(used) / Double(total) }
+    var usedPercent: Int { Int((usedFraction * 100).rounded()) }
+    var availablePercent: Int { 100 - usedPercent }
 }
