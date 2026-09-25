@@ -97,7 +97,7 @@ def main() -> int:
     if not packer_license.is_file():
         raise SystemExit(f"Packer license missing: {packer_license}")
 
-    metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--locked", "--offline", "--format-version", "1"], cwd=source, text=True))
+    metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--locked", "--format-version", "1"], cwd=source, text=True))
     packages = sorted(metadata["packages"], key=lambda package: (package["name"], package["version"]))
     root_package = next((package for package in packages if package["name"] == "memory-pack"), None)
     repository = root_package.get("repository") if root_package else None

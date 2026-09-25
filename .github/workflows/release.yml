@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: sass-maker/saas-maker
-          ref: 110aca5abbda9f57443cf1e6c737e4610b752805
+          ref: 5ce41c7bff28df407bfa4b87685b57311d66a814
           path: .daddy-tooling
           persist-credentials: false
       - name: Verify release tag and source commit
