@@ -146,7 +146,7 @@ jobs:
           set -euo pipefail
           python3 app/scripts/prepare-appcast.py "$RUNNER_TEMP/release" "$RUNNER_TEMP/feed" --ed-key-stdin
           cd "$RUNNER_TEMP/feed"
-          shasum -a 256 ./*.dmg > SHA256SUMS
+          shasum -a 256 *.dmg > SHA256SUMS
           python3 "$GITHUB_WORKSPACE/.daddy-tooling/tooling/daddy-macos/release_contract.py" \
             --app storagedaddy --repository "$CALLER_REPOSITORY" --tag "$RELEASE_TAG" \
             --plist "$RUNNER_TEMP/release/image-contents/storagedaddy.app/Contents/Info.plist" \
