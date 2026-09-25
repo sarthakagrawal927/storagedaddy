@@ -67,7 +67,7 @@ struct ApplicationsView: View {
                     .accessibilityLabel("Search applications by name, path or category")
                 Toggle("Group by category", isOn: $groupByCategory)
                     .toggleStyle(.checkbox).tint(Tints.mint).font(.caption).fixedSize()
-                    .help("Use categories declared by each app. Turn off to compare all apps in one list.")
+                    .help("Group installed apps by category. Turn off to compare all apps in one list.")
                 if !searchText.isEmpty {
                     Button("Clear") { searchText = "" }
                         .buttonStyle(StorageButtonStyle())
@@ -291,6 +291,7 @@ struct CleanupView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack { Text("Review Cleanup").font(.largeTitle.weight(.semibold)); DoodleArt(topic: .cleanup).frame(width: 72, height: 72); Spacer(); if m.showCleanup { Button("Done") { m.showCleanup = false } } }
             Text(m.staged.isEmpty ? "Add files and folders from Explore or Developer Insights. Nothing is removed until you confirm." : "Review the list before moving it to Trash. Items added with an incomplete check are marked below. We check paths and known contents again after confirmation.").foregroundStyle(Tints.secondaryText)
+            if !m.showCleanup && m.staged.isEmpty { TrashInventoryView() }
             if let scan = m.scan, !m.autoCleanerSuggestions.isEmpty {
                 AutoCleanerCard(scan: scan)
             }
@@ -321,6 +322,9 @@ struct CleanupView: View {
                             Text(StorageLabels.name(scan.nodes[id]))
                             CleanupFlag(category: m.cleanupCategory(id))
                             Text(StorageLabels.location(scan.url(for: id).path)).help(scan.url(for: id).path).font(.caption).foregroundStyle(Tints.secondaryText).lineLimit(1).truncationMode(.middle)
+                            if let note = CleanupGuidance.chromeCacheNote(path: scan.url(for: id).path) {
+                                Text(note).font(.caption).foregroundStyle(Tints.yellow)
+                            }
                             if let review = m.incompleteCleanup[id] {
                                 Label("Added anyway · \(review.skipped) \(review.skipped == 1 ? "item" : "items") not checked", systemImage: "exclamationmark.triangle")
                                     .font(.caption).foregroundStyle(Tints.coral)

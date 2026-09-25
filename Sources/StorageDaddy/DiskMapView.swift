@@ -11,29 +11,64 @@ struct DiskMapView: View {
             else if m.mode == .types { typeStats }
             else {
                 GeometryReader { g in
-                    let shapes = layout(size: g.size)
+                    let map = layout(size: g.size)
+                    let shapes = map.tiles
                     Canvas { ctx, size in
                         for shape in shapes {
                             let selected = m.selected == shape.node.id
-                            ctx.fill(shape.path, with: .color(Tints.forNode(shape.node).opacity(selected ? 1 : 0.9)))
-                            ctx.stroke(shape.path, with: .color(selected ? Color.white : Color.black), lineWidth: selected ? 4 : 3)
+                            let isChild = m.mode == .treemap && shape.depth == 1
+                            if isChild {
+                                // The parent tile is already behind this path. Shade it so
+                                // the child keeps the same hue with a little less brightness.
+                                ctx.fill(shape.path, with: .color(Color.black.opacity(0.18)))
+                            } else {
+                                let opacity = m.mode == .treemap ? (selected ? 0.9 : 0.8) : (selected ? 1.0 : 0.9)
+                                ctx.fill(shape.path, with: .color(Tints.forNode(shape.node).opacity(opacity)))
+                            }
+                            if selected || m.mode != .treemap {
+                                ctx.stroke(shape.path, with: .color(selected ? Color.white : Color.black), lineWidth: 3)
+                            }
                             if shape.labelRect.width > 55 && shape.labelRect.height > 28 {
-                                let ink = Color(red: 0.015, green: 0.02, blue: 0.03)
+                                let ink = isChild ? Color.white : Color(red: 0.015, green: 0.02, blue: 0.03)
                                 if m.mode == .treemap, shape.labelRect.height > 65, shape.labelRect.width > 95 {
-                                    let r = shape.labelRect.insetBy(dx: 14, dy: 12)
-                                    ctx.draw(Text(StorageLabels.name(shape.node)).font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundColor(ink), in: CGRect(x: r.minX, y: r.minY, width: r.width, height: 24))
-                                    ctx.draw(Text(DiskFormat.bytes(m.bytes(shape.node))).font(.system(size: 14, weight: .medium)).foregroundColor(ink.opacity(0.8)), in: CGRect(x: r.minX, y: r.minY + 29, width: r.width, height: 20))
+                                    let r = shape.labelRect.insetBy(dx: isChild ? 10 : 14, dy: isChild ? 9 : 12)
+                                    let name = shortenedTileName(StorageLabels.name(shape.node), width: r.width)
+                                    let size = DiskFormat.bytes(m.bytes(shape.node))
+                                    let detail: String
+                                    if isChild, let parentBytes = shape.parentBytes, r.width > 190 {
+                                        detail = "\(size) · \(shareLabel(m.bytes(shape.node), of: parentBytes)) inside"
+                                    } else if !isChild && r.width > 220 {
+                                        detail = "\(size) · \(shareLabel(m.bytes(shape.node), of: map.totalBytes))"
+                                    } else {
+                                        detail = size
+                                    }
+                                    ctx.draw(Text(name).font(.system(size: isChild ? 14 : 17, weight: .semibold, design: .rounded)).foregroundColor(ink), in: CGRect(x: r.minX, y: r.minY, width: r.width, height: 24))
+                                    ctx.draw(Text(detail).font(.system(size: isChild ? 12 : 14, weight: .medium)).foregroundColor(ink.opacity(0.85)), in: CGRect(x: r.minX, y: r.minY + 26, width: r.width, height: 20))
                                 } else {
                                     let text = Text(StorageLabels.name(shape.node)).font(.system(size: 12, weight: .semibold)).foregroundColor(ink)
                                     ctx.draw(text, in: shape.labelRect.insetBy(dx: 7, dy: 5))
                                 }
                             }
                         }
+                        for remainder in map.remainders {
+                            let path = Path(roundedRect: remainder.rect, cornerRadius: 9)
+                            ctx.fill(path, with: .color(remainder.isNested ? Color.black.opacity(0.32) : Color(white: 0.13)))
+                            if !remainder.isNested {
+                                ctx.stroke(path, with: .color(Color(white: 0.24)), lineWidth: 1)
+                            }
+                            if remainder.rect.width > 145 && remainder.rect.height > 65 {
+                                let r = remainder.rect.insetBy(dx: 14, dy: 12)
+                                ctx.draw(Text("\(remainder.title) · \(remainder.count.formatted()) items").font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundColor(.white),
+                                         in: CGRect(x: r.minX, y: r.minY, width: r.width, height: 24))
+                                ctx.draw(Text("\(DiskFormat.bytes(remainder.bytes)) · \(shareLabel(remainder.bytes, of: remainder.totalBytes))").font(.system(size: 13)).foregroundColor(Tints.secondaryText),
+                                         in: CGRect(x: r.minX, y: r.minY + 28, width: r.width, height: 20))
+                            }
+                        }
                     }
                     .overlay {
                         MapContextMenu(shapes: shapes, model: m)
                     }
-                    .modifier(MapHoverDetails(shapes: shapes, allocated: m.allocated))
+                    .modifier(MapHoverDetails(shapes: shapes, allocated: m.allocated, totalBytes: map.totalBytes, showShare: m.mode == .treemap))
                     .gesture(
                         SpatialTapGesture(count: 2)
                             .onEnded { value in
@@ -63,7 +98,8 @@ struct DiskMapView: View {
         case .flame: "Width shows size; each row is a deeper folder level. Up to four levels."
         case .bubbles: "Circle area shows size among the 36 largest items. Select an item below to inspect or open."
         case .mindMap: "Branch width shows relative size. The 18 largest items branch from the current folder."
-        default: "Area shows size in this folder. Select to inspect; double-click a folder tile or list item to explore it. Up to 120 items drawn."
+        case .treemap: "Area shows each item's share of this folder. Larger folders show one level of contents in darker tiles; their area shows each child's share inside that folder. Select to inspect or double-click to open. Up to 120 top-level items drawn."
+        default: "Area shows size in this folder. Select to inspect; double-click a folder tile or list item to explore it."
         }
     }
     private var rankedList: some View {
@@ -157,9 +193,11 @@ struct DiskMapView: View {
         }
     }
 
-    private func layout(size: CGSize) -> [DiskMapTile] {
-        guard let scan = m.scan else { return [] }
+    private func layout(size: CGSize) -> DiskMapLayout {
+        guard let scan = m.scan else { return DiskMapLayout(tiles: [], totalBytes: 0) }
         let items = m.visible; var tiles: [DiskMapTile] = []
+        var remainders: [TreemapRemainder] = []
+        var totalBytes = items.reduce(0.0) { $0 + Double(max(0, m.bytes($1))) }
         let full = CGRect(origin: .zero, size: size)
         func weight(_ n: DiskNode) -> Double { Double(max(0, m.bytes(n))) }
         func descendants(_ n: DiskNode) -> [DiskNode] { n.children.map { scan.nodes[$0] }.sorted { weight($0) > weight($1) } }
@@ -181,11 +219,42 @@ struct DiskMapView: View {
         }
         switch m.mode {
         case .treemap:
-            func partition(_ entries: ArraySlice<DiskNode>, _ r: CGRect) {
+            let children = scan.nodes[m.focus].children.map { scan.nodes[$0] }
+            func sumBytes(_ nodes: [DiskNode]) -> Int64 {
+                nodes.reduce(Int64.zero) { sum, node in
+                    let (value, overflow) = sum.addingReportingOverflow(max(0, m.bytes(node)))
+                    return overflow ? Int64.max : value
+                }
+            }
+            let folderBytes = sumBytes(children)
+            totalBytes = Double(folderBytes)
+            func partition(_ entries: ArraySlice<DiskNode>, _ r: CGRect, depth: Int = 0, parentBytes: Double? = nil) {
                 guard !entries.isEmpty, r.width > 1, r.height > 1 else { return }
                 if entries.count == 1, let n = entries.first {
-                    let inset = r.insetBy(dx: 2, dy: 2)
-                    tiles.append(DiskMapTile(node: n, path: Path(roundedRect: inset, cornerRadius: 9), labelRect: inset)); return
+                    let inset = r.insetBy(dx: 1, dy: 1)
+                    let headerHeight = min(68, max(42, inset.height * 0.25))
+                    tiles.append(DiskMapTile(node: n, path: Path(roundedRect: inset, cornerRadius: depth == 0 ? 9 : 5), labelRect: depth == 0 ? CGRect(x: inset.minX, y: inset.minY, width: inset.width, height: min(inset.height, headerHeight)) : inset, depth: depth, parentBytes: parentBytes))
+                    if depth == 0, n.isDirectory, inset.width >= 110, inset.height >= 125 {
+                        let inside = CGRect(x: inset.minX + 5, y: inset.minY + headerHeight + 2, width: inset.width - 10, height: inset.height - headerHeight - 7)
+                        let children = descendants(n).filter { weight($0) > 0 }
+                        let shown = Array(children.prefix(8))
+                        let shownBytes = sumBytes(shown)
+                        let coverage = min(1, Double(shownBytes) / max(1, weight(n)))
+                        if !shown.isEmpty, coverage > 0 {
+                            partition(shown[...], CGRect(x: inside.minX, y: inside.minY, width: inside.width * coverage, height: inside.height), depth: 1, parentBytes: weight(n))
+                        }
+                        if children.count > shown.count, weight(n) > Double(shownBytes) {
+                            remainders.append(TreemapRemainder(
+                                rect: CGRect(x: inside.minX + inside.width * coverage, y: inside.minY, width: inside.width * (1 - coverage), height: inside.height).insetBy(dx: 1, dy: 1),
+                                count: children.count - shown.count,
+                                bytes: Int64(max(0, weight(n) - Double(shownBytes))),
+                                title: "Other inside",
+                                totalBytes: weight(n),
+                                isNested: true
+                            ))
+                        }
+                    }
+                    return
                 }
                 let total = entries.reduce(0.0) { $0 + weight($1) }; guard total > 0 else { return }
                 var sum = 0.0; var split = entries.startIndex + 1
@@ -195,18 +264,27 @@ struct DiskMapView: View {
                 }
                 let ratio = sum / total
                 if r.width > r.height {
-                    partition(entries[..<split], CGRect(x: r.minX, y: r.minY, width: r.width * ratio, height: r.height))
-                    partition(entries[split...], CGRect(x: r.minX + r.width * ratio, y: r.minY, width: r.width * (1 - ratio), height: r.height))
+                    partition(entries[..<split], CGRect(x: r.minX, y: r.minY, width: r.width * ratio, height: r.height), depth: depth, parentBytes: parentBytes)
+                    partition(entries[split...], CGRect(x: r.minX + r.width * ratio, y: r.minY, width: r.width * (1 - ratio), height: r.height), depth: depth, parentBytes: parentBytes)
                 } else {
-                    partition(entries[..<split], CGRect(x: r.minX, y: r.minY, width: r.width, height: r.height * ratio))
-                    partition(entries[split...], CGRect(x: r.minX, y: r.minY + r.height * ratio, width: r.width, height: r.height * (1 - ratio)))
+                    partition(entries[..<split], CGRect(x: r.minX, y: r.minY, width: r.width, height: r.height * ratio), depth: depth, parentBytes: parentBytes)
+                    partition(entries[split...], CGRect(x: r.minX, y: r.minY + r.height * ratio, width: r.width, height: r.height * (1 - ratio)), depth: depth, parentBytes: parentBytes)
                 }
             }
             let positive = items.filter { weight($0) > 0 }
             let shown = Array(positive.prefix(120))
-            let total = positive.reduce(0.0) { $0 + weight($1) }
-            let shownTotal = shown.reduce(0.0) { $0 + weight($1) }
-            partition(shown[...], CGRect(x: 0, y: 0, width: full.width * shownTotal / max(1, total), height: full.height))
+            let shownBytes = sumBytes(shown)
+            let coverage = min(1, Double(shownBytes) / max(1, totalBytes))
+            partition(shown[...], CGRect(x: 0, y: 0, width: full.width * coverage, height: full.height))
+            if children.count > shown.count, folderBytes > shownBytes {
+                remainders.append(TreemapRemainder(
+                    rect: CGRect(x: full.width * coverage, y: 0, width: full.width * (1 - coverage), height: full.height).insetBy(dx: 2, dy: 2),
+                    count: children.count - shown.count,
+                    bytes: folderBytes - shownBytes,
+                    title: "Not shown",
+                    totalBytes: totalBytes
+                ))
+            }
         case .flame: rectangles(items, full, 0, true)
         case .sunburst:
             let center = CGPoint(x: size.width / 2, y: size.height / 2); let radius = min(size.width, size.height) / 2 - 4
@@ -240,8 +318,34 @@ struct DiskMapView: View {
             }
         default: break
         }
-        return tiles
+        return DiskMapLayout(tiles: tiles, totalBytes: totalBytes, remainders: remainders)
     }
+}
+
+private struct DiskMapLayout {
+    let tiles: [DiskMapTile]
+    let totalBytes: Double
+    var remainders: [TreemapRemainder] = []
+}
+
+private struct TreemapRemainder {
+    let rect: CGRect
+    let count: Int
+    let bytes: Int64
+    let title: String
+    let totalBytes: Double
+    var isNested = false
+}
+
+private func shareLabel(_ bytes: Int64, of total: Double) -> String {
+    guard total > 0 else { return "0%" }
+    let share = Double(max(0, bytes)) / total
+    return share > 0 && share < 0.001 ? "<0.1%" : share.formatted(.percent.precision(.fractionLength(1)))
+}
+
+private func shortenedTileName(_ name: String, width: CGFloat) -> String {
+    let limit = max(4, Int(width / 10))
+    return name.count > limit ? String(name.prefix(limit - 1)) + "…" : name
 }
 
 
@@ -249,12 +353,16 @@ private struct DiskMapTile {
     var node: DiskNode
     var path: Path
     var labelRect: CGRect
+    var depth = 0
+    var parentBytes: Double? = nil
 }
 
 /// Hover state lives below layout so pointer movement never rebuilds the graph.
 private struct MapHoverDetails: ViewModifier {
     let shapes: [DiskMapTile]
     let allocated: Bool
+    let totalBytes: Double
+    let showShare: Bool
     @State private var hoveredID: Int?
 
     func body(content: Content) -> some View {
@@ -282,6 +390,10 @@ private struct MapHoverDetails: ViewModifier {
                         Text(hovered.node.isDirectory ? "Folder" : "File").font(.caption).foregroundStyle(Tints.secondaryText)
                         Text("\(DiskFormat.bytes(allocated ? hovered.node.allocatedBytes : hovered.node.logicalBytes)) \(allocated ? "on disk" : "logical")")
                             .font(.callout.monospacedDigit()).foregroundStyle(Tints.mint)
+                        if showShare {
+                            Text("\(shareLabel(allocated ? hovered.node.allocatedBytes : hovered.node.logicalBytes, of: totalBytes)) of this folder")
+                                .font(.caption).foregroundStyle(Tints.secondaryText)
+                        }
                         if hovered.node.isDirectory {
                             Text("Double-click to open").font(.caption).foregroundStyle(Tints.secondaryText)
                         }

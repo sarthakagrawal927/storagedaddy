@@ -39,3 +39,19 @@ public enum FullDiskAccessProbe {
         }
     }
 }
+
+/// Automatic scans avoid folders that macOS may interrupt with a privacy prompt.
+/// A folder chosen by the user is scanned separately, without this list.
+public enum AutomaticScanPrivacy {
+    private static let protectedHomeFolders = ["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"]
+
+    public static func promptAvoidancePaths(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        accessStatus: FullDiskAccessStatus
+    ) -> [String] {
+        guard accessStatus != .accessible else { return [] }
+        return protectedHomeFolders.map {
+            homeDirectory.appendingPathComponent($0, isDirectory: true).standardizedFileURL.path
+        }
+    }
+}

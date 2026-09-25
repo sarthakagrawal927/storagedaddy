@@ -4,6 +4,26 @@ import Foundation
 import XCTest
 
 final class ScannerTests: XCTestCase {
+    func testPromptAvoidanceSkipsProtectedDirectoryAndReportsIncompleteScan() async throws {
+        let fixture = try makeFixture()
+        let downloads = fixture.appendingPathComponent("Downloads")
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: false)
+        try write([1], to: downloads.appendingPathComponent("private.bin"))
+        try write([2], to: fixture.appendingPathComponent("visible.bin"))
+
+        let result = try await DiskScanner.scan(root: fixture, backend: .foundation,
+            promptAvoidanceFolders: [downloads.path])
+        XCTAssertEqual(result.skipped, 1)
+        XCTAssertEqual(result.incompleteEvidence?.first?.reason, "skipped to avoid a macOS permission prompt")
+        XCTAssertFalse(result.nodes.contains { $0.name == "Downloads" || $0.name == "private.bin" })
+        XCTAssertTrue(result.nodes.contains { $0.name == "visible.bin" })
+
+        let protectedRoot = try await DiskScanner.scan(root: downloads,
+            promptAvoidanceFolders: [downloads.path])
+        XCTAssertTrue(protectedRoot.nodes.isEmpty)
+        XCTAssertEqual(protectedRoot.skipped, 1)
+    }
+
     func testFoundationScanAggregatesSparseFilesAndDeduplicatesHardLinks() async throws {
         let fixture = try makeFixture()
         let ordinary = fixture.appendingPathComponent("ordinary.bin")

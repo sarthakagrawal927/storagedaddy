@@ -6,12 +6,14 @@ public struct FolderExclusions: Sendable {
     public let paths: [String]
     private let matches: Set<String>
 
-    public init(paths: [String] = []) {
+    public init(paths: [String] = [], resolveAliases: Bool = true) {
         self.paths = Array(Set(paths.filter { $0.hasPrefix("/") }.map {
             URL(fileURLWithPath: $0).standardizedFileURL.path
         })).sorted()
         self.matches = Set(self.paths.flatMap { path in
-            [Self.volumePath(path), Self.volumePath(URL(fileURLWithPath: path).resolvingSymlinksInPath().path)]
+            resolveAliases
+                ? [Self.volumePath(path), Self.volumePath(URL(fileURLWithPath: path).resolvingSymlinksInPath().path)]
+                : [Self.volumePath(path)]
         })
     }
 

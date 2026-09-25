@@ -2,6 +2,13 @@ import XCTest
 @testable import DiskCore
 
 final class CleanupGuidanceTests: XCTestCase {
+    func testChromeCacheGuidanceOnlyAppliesToChromeCache() {
+        XCTAssertNotNil(CleanupGuidance.chromeCacheNote(path: "/Users/test/Library/Caches/Google/Chrome", home: "/Users/test"))
+        XCTAssertNotNil(CleanupGuidance.chromeCacheNote(path: "/Users/test/Library/Caches/Google/Chrome/Default/Cache", home: "/Users/test"))
+        XCTAssertNil(CleanupGuidance.chromeCacheNote(path: "/Users/test/Library/Application Support/Google/Chrome", home: "/Users/test"))
+        XCTAssertNil(CleanupGuidance.chromeCacheNote(path: "/Users/test/Library/Caches/Google/Chrome-headless", home: "/Users/test"))
+    }
+
     func testBatchSuggestionsExcludeInstalledToolsAndAmbiguousStores() {
         XCTAssertTrue(CleanupGuidance.isSuggestedCache(category: .packageCaches, path: "/Users/test/Library/Caches/uv", home: "/Users/test"))
         XCTAssertTrue(CleanupGuidance.isSuggestedCache(category: .packageCaches, path: "/Users/test/.cache/pip", home: "/Users/test"))

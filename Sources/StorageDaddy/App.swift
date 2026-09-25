@@ -40,7 +40,13 @@ struct DiskBuddyApp: App {
 @MainActor final class StorageDaddyAppDelegate: NSObject, NSApplicationDelegate {
     static let brandIcon: NSImage? = Bundle.main.url(forResource: "StorageDaddy", withExtension: "png").flatMap { NSImage(contentsOf: $0) }
     static func applyIcon() {
-        if let icon = brandIcon { NSApplication.shared.applicationIconImage = icon }
+        guard let icon = brandIcon else { return }
+        // Sparkle reads the named application icon for its update and progress windows.
+        if let previous = NSImage(named: NSImage.applicationIconName), previous !== icon {
+            _ = previous.setName(nil)
+        }
+        _ = icon.setName(NSImage.applicationIconName)
+        NSApplication.shared.applicationIconImage = icon
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.applyIcon()
@@ -223,12 +229,14 @@ struct FileTypeStats: Sendable {
             message = "The previous scan location is unavailable. Reconnect the disk or use Scan Folder to grant access again."
             return
         }
-        start(URL(fileURLWithPath: path))
+        start(URL(fileURLWithPath: path), allowProtectedFolder: lastScanAllowedProtectedFolder && scan?.rootPath == path)
     }
     @Published var showAbout = false
     @Published var showWelcome = false
     @Published var lastTrashedURLs: [URL] = []
     @Published var scan: ScanResult?
+    @Published private(set) var promptAvoidanceFolders: [String] = []
+    private var lastScanAllowedProtectedFolder = false
     let installedApplications = InstalledApplicationsModel()
     let dashboard = DashboardModel()
     lazy var conversationArchive = ConversationArchiveModel { [weak self] in
@@ -277,6 +285,8 @@ struct FileTypeStats: Sendable {
     @Published var reportProjectNames: [Int: String] = [:]
     @Published var developerReport: DeveloperReport?
     @Published var developerGroups: [DeveloperGroup] = []
+    @Published private(set) var projectDependencies: ProjectDependencyDiscovery?
+    @Published private(set) var projectDependenciesBusy = false
     @Published var previousDeveloperGroups: [DeveloperGroup]?
     @Published var previousDeveloperDate: Date?
     @Published var analysisElapsed: Double = 0
@@ -289,6 +299,7 @@ struct FileTypeStats: Sendable {
     private var focusTask: Task<Void, Never>?
     private var focusVersion = UUID()
     private var task: Task<Void, Never>?
+    private var projectDependenciesTask: Task<Void, Never>?
     private var scopedURL: URL?
     var node: DiskNode? { guard let scan, let id = selected, scan.nodes.indices.contains(id) else { return nil }; return scan.nodes[id] }
     func bytes(_ node: DiskNode) -> Int64 { allocated ? node.allocatedBytes : node.logicalBytes }
@@ -331,6 +342,9 @@ struct FileTypeStats: Sendable {
     func scanUserCaches() {
         start(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches"), destination: .explore)
     }
+    func scanHomeFolder() {
+        start(FileManager.default.homeDirectoryForCurrentUser, destination: .explore)
+    }
     func openStorage(_ section: StorageSection) {
         storageSection = section
         showWelcome = false
@@ -340,11 +354,23 @@ struct FileTypeStats: Sendable {
     func chooseFolder() { chooseFolder(destination: nil) }
     private func chooseFolder(destination: Workspace?) {
         let p = NSOpenPanel(); p.canChooseDirectories = true; p.canChooseFiles = false; p.allowsMultipleSelection = false; p.prompt = "Scan Folder"
-        if p.runModal() == .OK, let url = p.url { start(url, destination: destination) }
+        if p.runModal() == .OK, let url = p.url {
+            let protected = AutomaticScanPrivacy.promptAvoidancePaths(accessStatus: FullDiskAccessProbe.status())
+            let chosen = url.standardizedFileURL.path
+            let selectedProtectedFolder = protected.contains { chosen == $0 || chosen.hasPrefix($0 + "/") }
+            start(url, destination: destination, allowProtectedFolder: selectedProtectedFolder)
+        }
     }
-    func rescan() { if let scan { start(URL(fileURLWithPath: scan.rootPath)) } }
-    func start(_ url: URL, destination: Workspace? = nil) {
+    func rescan() { if let scan { start(URL(fileURLWithPath: scan.rootPath), allowProtectedFolder: lastScanAllowedProtectedFolder) } }
+    func start(_ url: URL, destination: Workspace? = nil, allowProtectedFolder: Bool = false) {
         guard !busy else { return }
+        lastScanAllowedProtectedFolder = allowProtectedFolder
+        let protectedFolders = allowProtectedFolder ? [] : AutomaticScanPrivacy.promptAvoidancePaths(accessStatus: FullDiskAccessProbe.status())
+        promptAvoidanceFolders = protectedFolders
+        projectDependenciesTask?.cancel()
+        projectDependenciesTask = nil
+        projectDependencies = nil
+        projectDependenciesBusy = false
         showWelcome = false
         lastTrashedURLs = []
         task?.cancel(); scanVersion = UUID(); staged = []; incompleteCleanup = [:]; busy = true; message = nil
@@ -373,11 +399,12 @@ struct FileTypeStats: Sendable {
                 }
             }
             do {
-                let result = try await DiskScanner.scan(root: url, excludedFolders: excludedFolders, progress: { [weak self] p in
+                let result = try await DiskScanner.scan(root: url, excludedFolders: excludedFolders,
+                    promptAvoidanceFolders: protectedFolders, progress: { [weak self] p in
                     Task { @MainActor [weak self] in guard let self, self.scanVersion == version, self.busy else { return }; self.liveProgress = p; self.progress = "\(p.entries.formatted()) entries · \(StorageLabels.location(p.path))" }
                 })
                 try Task.checkCancellation()
-                guard !result.nodes.isEmpty else { throw NSError(domain: "Scan", code: 1, userInfo: [NSLocalizedDescriptionKey: "This folder is excluded by folder settings or the sensitive-path policy. Choose a different folder."]) }
+                guard !result.nodes.isEmpty else { throw NSError(domain: "Scan", code: 1, userInfo: [NSLocalizedDescriptionKey: "This folder is excluded by settings or scan privacy rules. To include a protected folder, choose it with Scan Folder."]) }
                 let summaryStart = clock.now
                 let priorScan = self.scan?.rootPath == result.rootPath ? self.scan : nil
                 let priorReport = priorScan == nil ? nil : developerReport
@@ -429,10 +456,43 @@ struct FileTypeStats: Sendable {
                 } else { openStorage(.explore) }
                 snapshotNotice = nil
                 progress = "\(fileCount.formatted()) files · \(SpeedFormat.duration(result.elapsed)) scan · \(result.skipped) skipped"
+                if url.standardizedFileURL.path == FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches").standardizedFileURL.path {
+                    // A cache-only scan must not start a separate walk of Home while
+                    // macOS-protected folders are inaccessible. Even a readable-looking
+                    // directory may block in opendir and leave the quick scan spinning.
+                    if protectedFolders.isEmpty { discoverProjectDependencies(promptAvoidanceFolders: []) }
+                }
             } catch is CancellationError { if scanVersion == version { progress = scan == nil ? "Scan cancelled · Choose a disk or folder to try again" : "Scan cancelled · Showing previous results" } }
             catch { if scanVersion == version { message = error.localizedDescription; progress = scan == nil ? "Scan failed · Choose another disk or folder" : "Scan failed · Showing previous results" } }
             guard scanVersion == version else { return }
             liveProgress = nil; busy = false
+        }
+    }
+    private func discoverProjectDependencies(promptAvoidanceFolders: [String]) {
+        projectDependenciesBusy = true
+        let version = scanVersion
+        let exclusions = excludedFolders
+        projectDependenciesTask = Task { [weak self] in
+            do {
+                let result = try await ProjectDependencyDiscovery.discover(
+                    home: FileManager.default.homeDirectoryForCurrentUser,
+                    excludedFolders: exclusions,
+                    promptAvoidanceFolders: promptAvoidanceFolders,
+                    progress: { [weak self] update in
+                        Task { @MainActor [weak self] in
+                            guard let self, self.scanVersion == version, self.projectDependenciesBusy,
+                                  update.directoriesVisited > (self.projectDependencies?.directoriesVisited ?? 0) else { return }
+                            self.projectDependencies = update
+                        }
+                    }
+                )
+                guard !Task.isCancelled, let self, self.scanVersion == version else { return }
+                self.projectDependencies = result
+                self.projectDependenciesBusy = false
+            } catch {
+                guard !Task.isCancelled, let self, self.scanVersion == version else { return }
+                self.projectDependenciesBusy = false
+            }
         }
     }
     private func sampleMemory() {
