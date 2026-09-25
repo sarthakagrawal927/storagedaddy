@@ -96,9 +96,26 @@ struct ExplorerView: View {
             NSApplication.shared.setActivationPolicy(.regular)
             StorageDaddyAppDelegate.applyIcon()
             NSApplication.shared.activate(ignoringOtherApps: true)
+            // Scripted-verification flags. A destination workspace outlives
+            // the scan, which otherwise lands on Explore when it finishes.
+            var destination: Workspace?
+            if CommandLine.arguments.contains("--dashboard") { destination = .dashboard }
+            if let index = CommandLine.arguments.firstIndex(of: "--workspace"),
+               CommandLine.arguments.indices.contains(index + 1),
+               let workspace = Workspace(rawValue: CommandLine.arguments[index + 1]) {
+                destination = workspace
+            }
             if let index = CommandLine.arguments.firstIndex(of: "--scan"), CommandLine.arguments.indices.contains(index + 1), m.scan == nil {
                 accessIntroductionSeen = true
-                m.start(URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+                m.start(URL(fileURLWithPath: CommandLine.arguments[index + 1]), destination: destination)
+            } else if let destination {
+                accessIntroductionSeen = true
+                m.workspace = destination
+            }
+            if let index = CommandLine.arguments.firstIndex(of: "--mode"),
+               CommandLine.arguments.indices.contains(index + 1),
+               let mode = MapMode(rawValue: CommandLine.arguments[index + 1]) {
+                m.mode = mode
             }
         }
     }
@@ -106,8 +123,8 @@ struct ExplorerView: View {
     private var statusText: String {
         switch m.workspace {
         case .aiSessions: m.aiSessionsSection == .archive ? "Local conversation archive" : "Local AI history inventory"
-        case .aiContext: "Local AI context inventory"
         case .applications: "Installed applications"
+        case .dashboard: "Volumes, drive health and pressure"
         case .acknowledgments: "About storagedaddy"
         default: m.progress
         }
@@ -147,9 +164,9 @@ struct ExplorerView: View {
                 navigationItem(.explore)
                 navigationItem(.snapshots)
                 navigationHeading("TOOLS").padding(.top, 9)
+                navigationItem(.dashboard)
                 navigationItem(.applications)
                 navigationItem(.aiSessions)
-                navigationItem(.aiContext)
             }
             Spacer(minLength: 12)
             if let scan = m.scan, let root = scan.nodes.first {
@@ -193,7 +210,6 @@ struct ExplorerView: View {
                 Image(systemName: item.icon).frame(width: 20)
                 Text(item.title)
                 Spacer()
-                if item == .aiContext { AIContextBetaBadge() }
                 if item == .cleanup, !m.staged.isEmpty { Text("\(m.staged.count)").monospacedDigit() }
             }
             .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 32, alignment: .leading).contentShape(Rectangle())
@@ -223,13 +239,9 @@ struct ExplorerView: View {
                     .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             }
         case .snapshots: SavedHistoryView()
+        case .dashboard: DashboardView(dashboard: m.dashboard)
         case .cleanup: CleanupView()
         case .developer: DeveloperView()
-        case .aiContext:
-            GeometryReader { geometry in
-                AIContextView()
-                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-            }
         case .acknowledgments: AcknowledgmentsView()
         }
     }

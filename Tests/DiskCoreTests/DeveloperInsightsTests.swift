@@ -250,6 +250,68 @@ final class DeveloperInsightsTests: XCTestCase {
         XCTAssertEqual(group(.packageCaches, in: selectedGroups).rootAllocatedBytes, [0: 8])
     }
 
+    func testInstallersMatchByExtensionAsPerFileRoots() {
+        let scan = ScanResult(rootPath: "/Users/ada", nodes: [
+            node(0, nil, "ada", true, children: [1, 3, 5, 7]),
+            node(1, 0, "Downloads", true, children: [2]),
+            node(2, 1, "Tool.dmg", false, allocated: 100, logical: 120),
+            node(3, 0, "Library", true, children: [4]),
+            node(4, 3, "agent.pkg", false, allocated: 40, logical: 44),
+            node(5, 0, "archive.zip", false, allocated: 60, logical: 66),
+            node(6, 0, "node_modules", true, allocated: 10, children: [7]),
+            node(7, 6, "fixture.dmg", false, allocated: 10, logical: 10)
+        ])
+        let groups = DeveloperInsights.analyze(scan)
+        let installers = group(.installers, in: groups)
+        XCTAssertEqual(installers.allocatedBytes, 140)
+        XCTAssertEqual(Set(installers.rootIDs), [2, 4])
+        // A .dmg vendored inside node_modules stays with its owning subtree.
+        XCTAssertEqual(group(.oldDownloads, in: groups).allocatedBytes, 0)
+        XCTAssertEqual(group(.nodeModules, in: groups).allocatedBytes, 10)
+    }
+
+    func testOldDownloadsNeedTheFolderAgeAndSize() {
+        let now = Date()
+        let old = now.addingTimeInterval(-120 * 86400)
+        let fresh = now.addingTimeInterval(-3 * 86400)
+        let floor = DeveloperInsights.oldDownloadMinimumBytes
+        let scan = ScanResult(rootPath: "/Users/ada", nodes: [
+            node(0, nil, "ada", true, children: [1, 7, 9]),
+            node(1, 0, "Downloads", true, children: [2, 3, 4, 5, 6]),
+            node(2, 1, "big-old.bin", false, allocated: floor, logical: floor, modified: old),
+            node(3, 1, "big-fresh.bin", false, allocated: floor, logical: floor, modified: fresh),
+            node(4, 1, "small-old.bin", false, allocated: 5, logical: 5, modified: old),
+            node(5, 1, "setup.dmg", false, allocated: floor, logical: floor, modified: old),
+            node(6, 1, "deep", true, children: [10]),
+            node(7, 0, "Documents", true, children: [8]),
+            node(8, 7, "big-old.bin", false, allocated: floor, logical: floor, modified: old),
+            node(9, 0, "node_modules", true, allocated: 30, children: [11]),
+            node(10, 6, "nested-old.bin", false, allocated: floor, logical: floor, modified: old),
+            node(11, 9, "stale.js", false, allocated: 30, logical: 30, modified: old)
+        ])
+        let groups = DeveloperInsights.analyze(scan, now: now, cancellationCheck: {})
+        let downloads = group(.oldDownloads, in: groups)
+        // Stale large files at any depth under Downloads; the .dmg is an
+        // installer, the Documents copy and node_modules file are not downloads.
+        XCTAssertEqual(downloads.allocatedBytes, floor * 2)
+        XCTAssertEqual(Set(downloads.rootIDs), [2, 10])
+        XCTAssertEqual(group(.installers, in: groups).allocatedBytes, floor)
+        XCTAssertEqual(group(.nodeModules, in: groups).allocatedBytes, 30)
+    }
+
+    func testScanningDownloadsRootMarksEverythingInside() {
+        let now = Date()
+        let old = now.addingTimeInterval(-200 * 86400)
+        let floor = DeveloperInsights.oldDownloadMinimumBytes
+        let scan = ScanResult(rootPath: "/Users/ada/Downloads", nodes: [
+            node(0, nil, "Downloads", true, children: [1]),
+            node(1, 0, "old.bin", false, allocated: floor, logical: floor, modified: old)
+        ])
+        let groups = DeveloperInsights.analyze(scan, now: now, cancellationCheck: {})
+        XCTAssertEqual(group(.oldDownloads, in: groups).allocatedBytes, floor)
+        XCTAssertEqual(group(.oldDownloads, in: groups).rootIDs, [1])
+    }
+
     private func group(_ category: DeveloperCategory, in groups: [DeveloperGroup]) -> DeveloperGroup {
         groups.first { $0.category == category }!
     }
@@ -261,6 +323,7 @@ final class DeveloperInsightsTests: XCTestCase {
         _ directory: Bool,
         allocated: Int64 = 0,
         logical: Int64 = 0,
+        modified: Date = .distantPast,
         children: [Int] = []
     ) -> DiskNode {
         DiskNode(
@@ -270,6 +333,7 @@ final class DeveloperInsightsTests: XCTestCase {
             isDirectory: directory,
             logicalBytes: logical,
             allocatedBytes: allocated,
+            modified: modified,
             children: children
         )
     }

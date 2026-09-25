@@ -304,7 +304,14 @@ struct CleanupView: View {
                     }
                 }.padding(.vertical, 24)
                 Spacer()
-            } else if m.staged.isEmpty { StorageEmptyView("Choose what to clean up", systemImage: "tray", description: Text("Right-click a file or folder and choose Add to Cleanup. Each item is checked before it appears here.")) }
+            } else if m.staged.isEmpty {
+                StorageEmptyView("Choose what to clean up", systemImage: "tray", description: Text("Right-click a file or folder and choose Add to Cleanup. Each item is checked before it appears here."))
+                if !m.easyCleanupIDs.isEmpty {
+                    Button("Easy Cleanup — stage \(m.easyCleanupIDs.count) regenerable items (\(DiskFormat.bytes(m.easyCleanupBytes)))…", action: m.stageEasyCleanup)
+                        .buttonStyle(StorageButtonStyle(prominent: true)).disabled(m.busy || m.monitoring)
+                    Text("Stale builds, dependency folders and package caches. Each is verified, then listed here for your confirmation — nothing moves until Move to Trash.").font(.caption).foregroundStyle(Tints.secondaryText)
+                }
+            }
             else if let scan = m.scan {
                 List(m.staged.sorted(), id: \.self) { id in
                     HStack(alignment: .top) {
@@ -359,6 +366,8 @@ private struct AutoCleanerCard: View {
             }
             Text("Suggestions only — nothing moves automatically. Modification dates are metadata, not proof a folder is unused.")
                 .font(.caption).foregroundStyle(Tints.secondaryText)
+            Button("Easy Cleanup — stage all \(m.easyCleanupIDs.count) regenerable items (\(DiskFormat.bytes(m.easyCleanupBytes)))…", action: m.stageEasyCleanup)
+                .font(.callout).buttonStyle(StorageButtonStyle(prominent: true)).disabled(m.busy || m.monitoring || m.easyCleanupIDs.isEmpty)
             ForEach(suggestions) { suggestion in
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: suggestion.category.symbol)

@@ -39,26 +39,9 @@ private final class RefreshSequence<Value: Sendable>: @unchecked Sendable {
 }
 
 @Suite struct InventoryRefreshTests {
-    private func context(_ suffix: String) throws -> AIContextDiscoveryReport {
-        try AIContextDiscovery.discover(configuration: .init(
-            home: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("absent-context-\(UUID())-\(suffix)"), projectRoots: []))
-    }
-
     private func sessions(_ suffix: String) throws -> AISessionInventoryReport {
         try AISessionInventory.discover(configuration: .init(
             home: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("absent-sessions-\(UUID())-\(suffix)")))
-    }
-
-    @Test @MainActor func contextRetainsInventoryAndShowsRefreshFailure() async throws {
-        let expected = try context("retained")
-        let sequence = RefreshSequence(first: expected, second: expected)
-        let model = AIContextModel(discover: { _ in try sequence.next() })
-        await model.load()
-        #expect(model.report == expected)
-        await model.load()
-        #expect(model.report == expected)
-        #expect(model.errorMessage != nil)
-        #expect(!model.loading)
     }
 
     @Test @MainActor func sessionsRetainInventoryAndShowRefreshFailure() async throws {
@@ -69,21 +52,6 @@ private final class RefreshSequence<Value: Sendable>: @unchecked Sendable {
         await model.load()
         #expect(model.report == expected)
         #expect(model.errorMessage != nil)
-        #expect(!model.loading)
-    }
-
-    @Test @MainActor func supersededContextCannotOverwriteNewResult() async throws {
-        let newer = try context("new")
-        let sequence = RefreshSequence(first: try context("old"), second: newer, blockFirst: true)
-        let model = AIContextModel(discover: { _ in try sequence.next() })
-        let old = Task { await model.load() }
-        await sequence.waitUntilStarted()
-        #expect(model.loading)
-        await model.load()
-        sequence.resume.signal()
-        await old.value
-        #expect(model.report == newer)
-        #expect(model.errorMessage == nil)
         #expect(!model.loading)
     }
 

@@ -8,6 +8,7 @@ struct DiskMapView: View {
         VStack(alignment: .leading, spacing: 12) {
             if m.mode == .top { rankedList }
             else if m.mode == .age { ageMap }
+            else if m.mode == .types { typeStats }
             else {
                 GeometryReader { g in
                     let shapes = layout(size: g.size)
@@ -111,6 +112,50 @@ struct DiskMapView: View {
         }
     }
     private var filesByAge: [AgeSummary] { m.aged }
+
+    private var typeStats: some View {
+        let rows = m.fileTypeRows
+        let maximum = max(1, rows.map(\.bytes).max() ?? 1)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Storage by file type").font(.headline)
+                Text("Every file in this folder tree, grouped by extension. Folders that are packages — like apps and frameworks — keep their bytes in the real files inside.")
+                    .font(.caption).foregroundStyle(Tints.secondaryText).fixedSize(horizontal: false, vertical: true)
+                if rows.isEmpty {
+                    Text(m.busy ? "Counting file types…" : "No files in this folder.").foregroundStyle(Tints.secondaryText).padding(.vertical, 12)
+                }
+                ForEach(rows) { row in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 10) {
+                            Circle().fill(row.kind.color).frame(width: 8, height: 8)
+                            Text(row.name).fontWeight(.medium).lineLimit(1)
+                            Text(row.kind.rawValue).font(.caption).foregroundStyle(Tints.secondaryText)
+                            Spacer()
+                            Text("\(row.count.formatted()) \(row.count == 1 ? "file" : "files")").font(.caption).foregroundStyle(Tints.secondaryText)
+                            Text(DiskFormat.bytes(row.bytes)).monospacedDigit()
+                        }
+                        GeometryReader { g in
+                            RoundedRectangle(cornerRadius: 3).fill(row.kind.color.opacity(0.75))
+                                .frame(width: max(2, g.size.width * Double(row.bytes) / Double(maximum)))
+                        }.frame(height: 8)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if let id = row.largestID { m.selected = id } }
+                    .help("Largest \(row.name) file: \(row.largestID.flatMap { id in m.scan.map { $0.url(for: id).path } } ?? "none"). Select to inspect.")
+                    .contextMenu {
+                        if let id = row.largestID, let scan = m.scan, scan.nodes.indices.contains(id) {
+                            StorageItemMenu(node: scan.nodes[id])
+                        }
+                    }
+                }
+                if let summary = m.fileTypeSummary, summary.overflowFiles > 0 {
+                    Text("Plus \(DiskFormat.bytes(summary.overflowBytes)) across \(summary.overflowFiles.formatted()) files in less common types. \(summary.totalFiles.formatted()) files total.")
+                        .font(.caption).foregroundStyle(Tints.secondaryText)
+                }
+            }
+        }
+    }
 
     private func layout(size: CGSize) -> [DiskMapTile] {
         guard let scan = m.scan else { return [] }

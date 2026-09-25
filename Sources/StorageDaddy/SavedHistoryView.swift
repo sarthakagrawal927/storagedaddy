@@ -69,7 +69,7 @@ struct SavedHistoryView: View {
                             Divider().overlay(Tints.mint.opacity(0.18))
                         }
                     }
-                    AIContextPagination(page: $page, total: m.savedSnapshots.count, pageSize: 12, noun: "snapshots")
+                    ListPagination(page: $page, total: m.savedSnapshots.count, pageSize: 12, noun: "snapshots")
                 }
             }.padding(24).frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -118,7 +118,7 @@ private struct SavedSnapshotContents: View {
                 }.padding(.vertical, 6)
             }
             if !children.isEmpty {
-                AIContextPagination(page: $page, total: children.count, pageSize: 15, noun: "items")
+                ListPagination(page: $page, total: children.count, pageSize: 15, noun: "items")
             }
         }
     }

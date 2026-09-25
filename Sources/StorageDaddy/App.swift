@@ -49,11 +49,11 @@ struct DiskBuddyApp: App {
 }
 
 enum Workspace: String, CaseIterable, Identifiable {
-    case aiSessions = "AI Sessions", aiContext = "AI Context", developer = "Developer Insights", explore = "Explore", applications = "Applications", snapshots = "Snapshots", cleanup = "Cleanup", acknowledgments = "Acknowledgments"
+    case aiSessions = "AI Sessions", developer = "Developer Insights", explore = "Explore", applications = "Applications", snapshots = "Snapshots", cleanup = "Cleanup", acknowledgments = "Acknowledgments", dashboard = "Dashboard"
     var id: String { rawValue }
     var title: String { switch self { case .explore: "Storage"; case .cleanup: "Review Cleanup"; case .snapshots: "History"; default: rawValue } }
     var requiresScan: Bool { [.developer, .cleanup].contains(self) }
-    var icon: String { switch self { case .aiSessions: "bubble.left.and.text.bubble.right.fill"; case .aiContext: "sparkles.rectangle.stack"; case .developer: "terminal"; case .explore: "internaldrive.fill"; case .applications: "app.badge"; case .snapshots: "clock.arrow.circlepath"; case .cleanup: "trash"; case .acknowledgments: "heart.text.square" } }
+    var icon: String { switch self { case .aiSessions: "bubble.left.and.text.bubble.right.fill"; case .developer: "terminal"; case .explore: "internaldrive.fill"; case .applications: "app.badge"; case .snapshots: "clock.arrow.circlepath"; case .cleanup: "trash"; case .acknowledgments: "heart.text.square"; case .dashboard: "speedometer" } }
 }
 
 enum StorageSection: String, CaseIterable, Identifiable {
@@ -64,15 +64,123 @@ enum StorageSection: String, CaseIterable, Identifiable {
     var icon: String { switch self { case .explore: "square.grid.2x2"; case .developer: "terminal"; case .cleanup: "trash" } }
 }
 enum MapMode: String, CaseIterable, Identifiable {
-    case folders = "Folders", sunburst = "Sunburst", flame = "Flame", bubbles = "Bubbles", mindMap = "Mind Map", top = "Top Sizes", age = "Age Map", treemap = "Treemap"
+    case folders = "Folders", sunburst = "Sunburst", flame = "Flame", bubbles = "Bubbles", mindMap = "Mind Map", top = "Top Sizes", age = "Age Map", types = "File Types", treemap = "Treemap"
     var id: String { rawValue }
-    var icon: String { switch self { case .folders: "folder"; case .sunburst: "circle.dotted.circle"; case .flame: "chart.bar.xaxis"; case .bubbles: "circle.grid.3x3"; case .mindMap: "point.3.connected.trianglepath.dotted"; case .top: "chart.bar.fill"; case .age: "calendar"; case .treemap: "rectangle.split.3x3" } }
+    var icon: String { switch self { case .folders: "folder"; case .sunburst: "circle.dotted.circle"; case .flame: "chart.bar.xaxis"; case .bubbles: "circle.grid.3x3"; case .mindMap: "point.3.connected.trianglepath.dotted"; case .top: "chart.bar.fill"; case .age: "calendar"; case .types: "tag"; case .treemap: "rectangle.split.3x3" } }
 }
 struct AgeSummary: Sendable {
     var count = 0
     var bytes: Int64 = 0
     var largest: NodeRanking
     init(allocated: Bool = true) { largest = NodeRanking(limit: 4, allocated: allocated) }
+}
+
+/// QDirStat-style kind buckets: a coarse answer to "what sort of data is
+/// this" that an extension table alone scatters across hundreds of rows.
+enum FileKind: String, CaseIterable, Sendable {
+    case archives = "Archives"
+    case diskImages = "Disk images"
+    case installers = "Installers"
+    case media = "Media"
+    case documents = "Documents"
+    case code = "Code"
+    case data = "Data"
+    case binaries = "Binaries"
+    case other = "Other"
+
+    init(ext: String) {
+        switch ext {
+        case "zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "zst", "lz4", "lzma", "cab", "war", "jar": self = .archives
+        case "dmg", "iso", "img", "vmdk", "vdi", "vhd", "vhdx", "qcow2", "sparseimage": self = .diskImages
+        case "pkg", "mpkg", "xip", "ipsw": self = .installers
+        case "mp4", "mov", "mkv", "avi", "webm", "m4v", "mp3", "wav", "flac", "aiff", "aif", "m4a", "ogg", "opus",
+             "jpg", "jpeg", "png", "heic", "heif", "gif", "tiff", "tif", "webp", "bmp", "psd", "ai", "svg", "raw", "cr2", "nef", "arw", "dng": self = .media
+        case "pdf", "doc", "docx", "pages", "numbers", "key", "keynote", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+             "md", "txt", "rtf", "epub", "tex": self = .documents
+        case "swift", "rs", "py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "go", "c", "cc", "cpp", "cxx", "h", "hh", "hpp",
+             "m", "mm", "java", "kt", "kts", "rb", "php", "sh", "zsh", "bash", "pl", "pm", "lua", "css", "scss", "sass",
+             "less", "html", "htm", "vue", "svelte", "zig", "hs", "ml", "fs", "fsx", "cs", "vb", "scala", "clj", "ex", "exs": self = .code
+        case "json", "jsonl", "ndjson", "csv", "tsv", "xml", "yaml", "yml", "toml", "ini", "cfg", "db", "sqlite", "sqlite3",
+             "sql", "log", "plist", "parquet", "arrow", "bin", "dat", "pt", "pth", "onnx", "safetensors", "gguf", "ckpt": self = .data
+        case "so", "dylib", "a", "o", "obj", "exe", "dll", "class", "wasm", "node", "pyc", "pyo", "d": self = .binaries
+        default: self = .other
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .archives: Tints.cyan
+        case .diskImages: Tints.electricBlue
+        case .installers: Tints.mint
+        case .media: Tints.coral
+        case .documents: Color(red: 0.69, green: 0.79, blue: 0.35)
+        case .code: Tints.electricBlue
+        case .data: Tints.yellow
+        case .binaries: Tints.secondaryText
+        case .other: Color(white: 0.45)
+        }
+    }
+}
+
+struct FileTypeStat: Identifiable, Sendable {
+    var id: String { name }
+    /// Display label: ".dmg" or "No extension".
+    let name: String
+    let ext: String
+    let kind: FileKind
+    private(set) var count = 0
+    private(set) var bytes: Int64 = 0
+    /// The largest matching file, so a row can jump straight to evidence.
+    private(set) var largestID: Int?
+    private var largestBytes: Int64 = 0
+
+    mutating func add(_ node: DiskNode, bytes: Int64) {
+        count += 1
+        let (sum, overflow) = self.bytes.addingReportingOverflow(bytes)
+        self.bytes = overflow ? Int64.max : sum
+        if largestID == nil || bytes > largestBytes {
+            largestID = node.id
+            largestBytes = bytes
+        }
+    }
+}
+
+/// Aggregates files by extension over a subtree. Directories never count —
+/// package-style folders (.app, .framework) keep their bytes spread across
+/// the real files inside, matching Top Sizes and Age Map semantics.
+struct FileTypeStats: Sendable {
+    private var byExtension: [String: FileTypeStat] = [:]
+    private(set) var totalBytes: Int64 = 0
+    private(set) var totalFiles = 0
+    private(set) var overflowBytes: Int64 = 0
+    private(set) var overflowFiles = 0
+
+    mutating func insert(_ node: DiskNode, bytes: Int64) {
+        let ext = (node.name as NSString).pathExtension.lowercased()
+        let (total, overflowed) = totalBytes.addingReportingOverflow(bytes)
+        totalBytes = overflowed ? Int64.max : total
+        totalFiles += 1
+        var stat = byExtension[ext] ?? FileTypeStat(name: ext.isEmpty ? "No extension" : ".\(ext)", ext: ext, kind: FileKind(ext: ext))
+        stat.add(node, bytes: bytes)
+        byExtension[ext] = stat
+    }
+
+    /// Rows are ranked by bytes; everything past `limit` folds into the
+    /// overflow counters so the footer can state what was hidden.
+    mutating func sort(limit: Int) -> [FileTypeStat] {
+        let all = byExtension.values.sorted {
+            if $0.bytes != $1.bytes { return $0.bytes > $1.bytes }
+            if $0.count != $1.count { return $0.count > $1.count }
+            return $0.name < $1.name
+        }
+        overflowBytes = 0; overflowFiles = 0
+        for stat in all.dropFirst(limit) {
+            let (sum, of) = overflowBytes.addingReportingOverflow(stat.bytes)
+            overflowBytes = of ? Int64.max : sum
+            overflowFiles += stat.count
+        }
+        return Array(all.prefix(limit))
+    }
 }
 
 @MainActor final class ExplorerModel: ObservableObject {
@@ -116,11 +224,11 @@ struct AgeSummary: Sendable {
     @Published var lastTrashedURLs: [URL] = []
     @Published var scan: ScanResult?
     let installedApplications = InstalledApplicationsModel()
+    let dashboard = DashboardModel()
     lazy var conversationArchive = ConversationArchiveModel { [weak self] in
         self?.requestAISessionsRefresh()
     }
     @Published private(set) var aiSessionsRefreshID = UUID()
-    @Published var aiContextSection: AIContextSection = .folders
     @Published var aiSessionsSection: AISessionsSection = .sessions
     @Published var workspace: Workspace = .explore
     @Published var storageSection: StorageSection = .explore
@@ -152,6 +260,8 @@ struct AgeSummary: Sendable {
     @Published var visible: [DiskNode] = []
     @Published var ranked: [DiskNode] = []
     @Published var aged: [AgeSummary] = (0..<4).map { _ in AgeSummary() }
+    @Published var fileTypeRows: [FileTypeStat] = []
+    @Published var fileTypeSummary: FileTypeStats?
     @Published var quickWinNodes: [DiskNode] = []
     @Published var appNodes: [DiskNode] = []
     @Published var fileCount = 0
@@ -178,7 +288,7 @@ struct AgeSummary: Sendable {
     func bytes(_ node: DiskNode) -> Int64 { allocated ? node.allocatedBytes : node.logicalBytes }
     func refreshFocus() {
         focusTask?.cancel()
-        guard let scan, scan.nodes.indices.contains(focus) else { visible = []; return }
+        guard let scan, scan.nodes.indices.contains(focus) else { visible = []; fileTypeRows = []; fileTypeSummary = nil; return }
         let version = UUID(); focusVersion = version
         let focus = focus, search = search, allocated = allocated, mode = mode
         focusTask = Task {
@@ -187,7 +297,8 @@ struct AgeSummary: Sendable {
                 let visible = scan.nodes[focus].children.map { scan.nodes[$0] }.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }.sorted { size($0) > size($1) }
                 var files = NodeRanking(limit: 250, allocated: allocated)
                 var aged = (0..<4).map { _ in AgeSummary(allocated: allocated) }
-                guard mode == .top || mode == .age else { return (visible, files.sorted, aged) }
+                var types = FileTypeStats()
+                guard mode == .top || mode == .age || mode == .types else { return (visible, files.sorted, aged, types, [FileTypeStat]()) }
                 var stack = [focus]
                 let now = Date()
                 while let id = stack.popLast() {
@@ -196,16 +307,19 @@ struct AgeSummary: Sendable {
                     if n.isDirectory { stack.append(contentsOf: n.children) }
                     else if search.isEmpty || n.name.localizedCaseInsensitiveContains(search) {
                         if mode == .top { files.insert(n); continue }
+                        if mode == .types { types.insert(n, bytes: size(n)); continue }
                         let days = now.timeIntervalSince(n.modified) / 86400
                         let bucket = days < 30 ? 0 : days < 180 ? 1 : days < 365 ? 2 : 3
                         aged[bucket].count += 1; aged[bucket].bytes += size(n); aged[bucket].largest.insert(n)
                     }
                 }
-                return (visible, files.sorted, aged)
+                let rows = types.sort(limit: 48)
+                return (visible, files.sorted, aged, types, rows)
             }
             let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard !Task.isCancelled, focusVersion == version else { return }
             visible = result.0; ranked = result.1; aged = result.2
+            fileTypeSummary = result.3; fileTypeRows = result.4
         }
     }
     func scanUserCaches() {
@@ -455,15 +569,28 @@ struct AgeSummary: Sendable {
         }.map(\.id)
     }
 
-    func stageSuggestedCaches() {
+    /// The "easy cleanup" set: bounded package caches plus stale builds and
+    /// dependency trees that met the AutoCleaner staleness thresholds.
+    /// Staging is the only side effect — Trash still requires the review
+    /// list's own confirmation.
+    var easyCleanupIDs: [Int] {
+        Array(Set(suggestedCacheIDs + autoCleanerSuggestions.map(\.id)))
+    }
+
+    var easyCleanupBytes: Int64 {
+        guard let scan else { return 0 }
+        return easyCleanupIDs.reduce(0) { $0 + scan.nodes[$1].allocatedBytes }
+    }
+
+    func stageEasyCleanup() {
         guard let scan, !busy, !monitoring else { return }
-        let ids = suggestedCacheIDs
+        let ids = easyCleanupIDs
         guard !ids.isEmpty else { return }
         let alert = NSAlert()
-        alert.messageText = "Add \(ids.count) cache folders for review?"
-        alert.informativeText = "Package tools usually download these contents again. Stop active installs and builds first. This does not check whether a tool is using them. Incomplete or changed folders will be skipped. Nothing moves until you review the list and confirm Move to Trash."
+        alert.messageText = "Stage \(ids.count) regenerable items for review?"
+        alert.informativeText = "Build outputs, dependency folders and package caches that tools can usually rebuild or download again. Stop active installs and builds first. This does not check whether a tool is using them. Incomplete or changed folders will be skipped. Nothing moves until you review the list and confirm Move to Trash."
         alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Add for Review")
+        alert.addButton(withTitle: "Stage for Review")
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         let version = scanVersion
         busy = true
@@ -491,10 +618,11 @@ struct AgeSummary: Sendable {
                     skipped.append(StorageLabels.name(scan.nodes[id]))
                 }
             }
-            progress = "\(added) added for review · \(skipped.count) skipped · Nothing moved"
+            progress = "\(added) staged for review · \(skipped.count) skipped · Nothing moved"
             if !skipped.isEmpty {
-                message = "Added \(added) cache folders for review. Could not fully verify: \(skipped.joined(separator: ", ")). Inspect these individually in Explore. Nothing was moved."
+                message = "Staged \(added) items for review. Could not fully verify: \(skipped.joined(separator: ", ")). Inspect these individually in Explore. Nothing was moved."
             }
+            if added > 0 { openStorage(.cleanup) }
         }
     }
 

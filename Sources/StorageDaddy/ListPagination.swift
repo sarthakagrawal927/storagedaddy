@@ -1,8 +1,8 @@
 import SwiftUI
 import DiskCore
 
-/// Keeps large metadata inventories browsable without expanding every matching file.
-struct AIContextPagination: View {
+/// Keeps long lists browsable without expanding every matching item.
+struct ListPagination: View {
     @Binding var page: Int
     let total: Int
     let pageSize: Int
@@ -22,19 +22,5 @@ struct AIContextPagination: View {
                     .disabled(page >= lastPage).accessibilityLabel("Next page of \(noun)")
             }
         }.padding(.vertical, 8)
-    }
-}
-
-struct AIContextSourceItems<Row: View>: View {
-    let items: [AIContextItem]
-    let row: (AIContextItem) -> Row
-    @State private var page = 0
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(items.dropFirst(page * 10).prefix(10))) { item in row(item) }
-            AIContextPagination(page: $page, total: items.count, pageSize: 10, noun: "files")
-        }
-        .onChange(of: items.map(\.id)) { _, _ in page = 0 }
     }
 }

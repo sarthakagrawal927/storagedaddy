@@ -16,6 +16,12 @@ public enum DeveloperCategory: String, CaseIterable, Sendable {
     case modelCaches
     case buildOutputs
     case temporary
+    /// Installer payloads matched by extension: disk images, packages and
+    /// similar single-file installers wherever they sit in the scan.
+    case installers
+    /// Files inside a directory named Downloads, untouched for
+    /// `oldDownloadDays` and at least `oldDownloadMinimumBytes`.
+    case oldDownloads
 }
 
 public struct DeveloperGroup: Sendable {
@@ -46,6 +52,12 @@ public struct DeveloperGroup: Sendable {
 }
 
 public enum DeveloperInsights {
+    /// Staleness and size floors for `oldDownloads`. Age comes from file
+    /// metadata, so it describes the file's last write, not whether the
+    /// file is still needed.
+    public static let oldDownloadDays = 90
+    public static let oldDownloadMinimumBytes: Int64 = 16 * 1024 * 1024
+
     /// Classifies scan metadata without opening any files. A recognized
     /// subtree owns every descendant, keeping category totals nonoverlapping.
     /// Temporary paths are a fallback so recognizable developer storage under
@@ -54,7 +66,7 @@ public enum DeveloperInsights {
         analyze(scan, cancellationCheck: {})
     }
 
-    public static func analyze(_ scan: ScanResult, cancellationCheck: () throws -> Void) rethrows -> [DeveloperGroup] {
+    public static func analyze(_ scan: ScanResult, now: Date = Date(), cancellationCheck: () throws -> Void) rethrows -> [DeveloperGroup] {
         var allocated = Dictionary(uniqueKeysWithValues: DeveloperCategory.allCases.map { ($0, Int64.zero) })
         var logical = Dictionary(uniqueKeysWithValues: DeveloperCategory.allCases.map { ($0, Int64.zero) })
         var files = Dictionary(uniqueKeysWithValues: DeveloperCategory.allCases.map { ($0, 0) })
@@ -118,13 +130,14 @@ public enum DeveloperInsights {
 
             guard !node.isDirectory, !node.isSymlink else { continue }
             let session = sessionCategory(for: node, context: context)
-            let category = context.owner ?? session ?? (context.temporaryFallback ? .temporary : nil)
+            let fileRule = fileCategory(for: node, context: context, now: now)
+            let category = context.owner ?? session ?? fileRule ?? (context.temporaryFallback ? .temporary : nil)
             guard let category else { continue }
 
             let rootID: Int
             if context.owner != nil, let ownerRootID = context.ownerRootID {
                 rootID = ownerRootID
-            } else if session != nil {
+            } else if session != nil || fileRule != nil {
                 rootID = node.id
             } else if let temporaryRootID = context.temporaryRootID {
                 rootID = temporaryRootID
@@ -209,6 +222,18 @@ public enum DeveloperInsights {
         return nil
     }
 
+    /// Single-file categories claimed when no recognized subtree owns the
+    /// file: installer payloads by extension, then stale Downloads files by
+    /// context, age and size. Each matching file is its own finding root.
+    private static func fileCategory(for node: DiskNode, context: NodeContext, now: Date) -> DeveloperCategory? {
+        if installerExtensions.contains((node.name as NSString).pathExtension.lowercased()) {
+            return .installers
+        }
+        guard context.inDownloads, node.logicalBytes >= oldDownloadMinimumBytes else { return nil }
+        let days = Calendar.current.dateComponents([.day], from: node.modified, to: now).day ?? 0
+        return days >= oldDownloadDays ? .oldDownloads : nil
+    }
+
     private static func updateScope(for node: DiskNode, context: inout NodeContext) {
         updateScope(named: node.name.lowercased(), context: &context)
     }
@@ -234,6 +259,11 @@ public enum DeveloperInsights {
 
         if containerToolDirectoryNames.contains(name) {
             context.containerTool = true
+        }
+        if name == "downloads" {
+            // Inherited by descendants: a Downloads folder names intent
+            // wherever it sits in the scanned tree.
+            context.inDownloads = true
         }
         if name == "containers", context.parentName == "share", context.grandparentName == ".local" {
             context.containerStorageScope = true
@@ -304,6 +334,7 @@ private struct NodeContext {
     var grandparentName = ""
     var containerTool = false
     var containerStorageScope = false
+    var inDownloads = false
 }
 
 private struct RootKey: Hashable {
@@ -329,6 +360,11 @@ private let containerToolDirectoryNames: Set<String> = [
     "com.parallels.desktop", "com.vmware.fusion"
 ]
 private let containerVolumeNames: Set<String> = ["vms", "vm", "disks"]
+
+/// Single-file installer payloads. `.iso` and `.ipsw` images live here too:
+/// both are device/disk installers in practice, and each finding shows its
+/// full path so a real archive is easy to keep.
+private let installerExtensions: Set<String> = ["dmg", "pkg", "mpkg", "xip", "iso", "ipsw"]
 
 private func saturatingAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
     let (value, overflow) = lhs.addingReportingOverflow(rhs)

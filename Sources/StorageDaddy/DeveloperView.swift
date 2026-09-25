@@ -25,7 +25,9 @@ private struct DeveloperStorageFamily: Identifiable, CaseIterable {
         Self(title: "node_modules", symbol: "shippingbox", color: Color(red: 0.69, green: 0.79, blue: 0.35),
              categories: [.nodeModules]),
         Self(title: ".git", symbol: "arrow.triangle.branch", color: Tints.coral,
-             categories: [.gitRepositories])
+             categories: [.gitRepositories]),
+        Self(title: "Installers & old downloads", symbol: "square.and.arrow.down.fill", color: Tints.yellow,
+             categories: [.installers, .oldDownloads])
     ]
 }
 
@@ -44,6 +46,8 @@ extension DeveloperCategory {
         case .packageCaches: "Package caches"
         case .containerStorage: "Containers & VMs"
         case .modelCaches: "Local AI models"
+        case .installers: "Installer files"
+        case .oldDownloads: "Old downloads"
         }
     }
     var symbol: String {
@@ -60,6 +64,8 @@ extension DeveloperCategory {
         case .packageCaches: "archivebox"
         case .containerStorage: "externaldrive"
         case .modelCaches: "brain"
+        case .installers: "shippingbox.and.arrow.backward"
+        case .oldDownloads: "arrow.down.to.line"
         }
     }
     var color: Color {
@@ -76,6 +82,8 @@ extension DeveloperCategory {
         case .packageCaches: Tints.yellow
         case .containerStorage: Tints.electricBlue
         case .modelCaches: Tints.coral
+        case .installers: Tints.mint
+        case .oldDownloads: Tints.yellow
         }
     }
     var detail: String {
@@ -92,6 +100,8 @@ extension DeveloperCategory {
         case .packageCaches: "Recognized package-manager caches across development ecosystems."
         case .containerStorage: "Recognized container and virtual-machine storage. It may contain valuable databases and volumes."
         case .modelCaches: "Recognized local model storage. Removing models can require large downloads."
+        case .installers: "Disk images and installer packages found by extension. Removing one never removes an installed app; re-downloading is usually possible but not guaranteed."
+        case .oldDownloads: "Files inside a Downloads folder untouched for \(DeveloperInsights.oldDownloadDays)+ days and \(DiskFormat.bytes(DeveloperInsights.oldDownloadMinimumBytes)) or larger. Age is the only evidence; review before cleanup."
         }
     }
 }
@@ -142,7 +152,7 @@ struct DeveloperView: View {
     private var storageFamilyGrid: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Developer storage by type").font(.title2.weight(.semibold))
-            Text("Six useful groups first. Open the category breakdown for the underlying tools and folders.")
+            Text("Seven useful groups first. Open the category breakdown for the underlying tools and folders.")
                 .font(.callout).foregroundStyle(Tints.secondaryText)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(storageFamilies) { family in
@@ -229,15 +239,15 @@ struct DeveloperView: View {
                 Spacer()
                 Button("Review Cleanup (\(m.staged.count))") { m.openStorage(.cleanup) }
             }
-            Text("Largest recognized caches and builds. Check what each belongs to before removing it; tools may need to rebuild or download it again.")
+            Text("Largest recognized caches, builds, installers and stale downloads. Check what each belongs to before removing it; tools may need to rebuild or download it again.")
                 .font(.callout).foregroundStyle(Tints.secondaryText)
-            Button("Add Downloadable Caches for Review…", action: m.stageSuggestedCaches)
-                .disabled(m.busy || m.monitoring || m.suggestedCacheIDs.isEmpty)
+            Button(m.easyCleanupIDs.isEmpty ? "Easy Cleanup…" : "Easy Cleanup — \(m.easyCleanupIDs.count) regenerable items · \(DiskFormat.bytes(m.easyCleanupBytes))…", action: m.stageEasyCleanup)
+                .disabled(m.busy || m.monitoring || m.easyCleanupIDs.isEmpty)
             let findings = Array((m.developerReport?.findings ?? []).lazy.filter {
-                [.buildOutputs, .packageCaches, .aiCaches].contains($0.category)
+                [.buildOutputs, .packageCaches, .aiCaches, .installers, .oldDownloads].contains($0.category)
             }.prefix(5))
             if findings.isEmpty {
-                Text("No recognized cache or build candidates in this scan. Explore the largest folders to review other files.").foregroundStyle(Tints.secondaryText)
+                Text("No recognized cache, build, installer or stale-download candidates in this scan. Explore the largest folders to review other files.").foregroundStyle(Tints.secondaryText)
                 Button("Explore files") { m.openStorage(.explore) }
             }
             ForEach(findings) { finding in
@@ -331,9 +341,9 @@ struct CleanupFlag: View {
     var body: some View {
         Text(CleanupGuidance.label(for: category))
             .font(.caption.weight(.medium))
-            .foregroundStyle(category == .packageCaches ? Tints.mint : Tints.yellow)
+            .foregroundStyle(category == .packageCaches || category == .installers ? Tints.mint : Tints.yellow)
             .padding(.horizontal, 8).padding(.vertical, 4)
-            .overlay(Capsule().stroke((category == .packageCaches ? Tints.mint : Tints.yellow).opacity(0.35)))
+            .overlay(Capsule().stroke((category == .packageCaches || category == .installers ? Tints.mint : Tints.yellow).opacity(0.35)))
             .help(CleanupGuidance.explanation(for: category) + " This does not mean the item is unused. Stop tools using it before cleanup.")
     }
 }

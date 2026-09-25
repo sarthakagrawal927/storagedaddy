@@ -165,7 +165,8 @@ public struct DeveloperReport: Sendable {
 
     private static func isShared(_ category: DeveloperCategory) -> Bool {
         switch category {
-        case .claudeSessions, .codexSessions, .aiCaches, .packageCaches, .containerStorage, .modelCaches:
+        case .claudeSessions, .codexSessions, .aiCaches, .packageCaches, .containerStorage, .modelCaches,
+             .installers, .oldDownloads:
             return true
         case .gitRepositories, .nodeModules, .pythonEnvironments, .installedModules, .buildOutputs, .temporary:
             return false
@@ -233,6 +234,16 @@ public struct DeveloperReport: Sendable {
             }
             return "Build tool"
         case .temporary: return "Temporary storage"
+        case .installers:
+            switch (nodeName as NSString).pathExtension.lowercased() {
+            case "dmg": return "Disk image"
+            case "pkg", "mpkg": return "Installer package"
+            case "xip": return "Signed archive"
+            case "iso": return "ISO image"
+            case "ipsw": return "Device restore image"
+            default: return "Installer"
+            }
+        case .oldDownloads: return "Old download"
         }
     }
 
@@ -260,12 +271,16 @@ public struct DeveloperReport: Sendable {
             return "AI cache data may be recreated, but verify the tool can restore it before cleanup."
         case .modelCaches:
             return "Models may need to be downloaded again; verify remote availability before cleanup."
+        case .installers:
+            return "Removing an installer does not remove an installed app. Installers can usually be downloaded again, but version availability is not guaranteed."
+        case .oldDownloads:
+            return "Age is the only evidence here; some downloads are the only copy of a file. Review contents before cleanup."
         }
     }
 
     private static func confidence(for category: DeveloperCategory) -> String {
         switch category {
-        case .buildOutputs, .temporary: return "Medium"
+        case .buildOutputs, .temporary, .oldDownloads: return "Medium"
         default: return "High"
         }
     }
