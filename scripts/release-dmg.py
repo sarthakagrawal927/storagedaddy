@@ -44,7 +44,7 @@ def main():
                                 (helper, app / "Contents/Helpers/memory-pack")]:
         shutil.copyfile(source, destination)
         destination.chmod(0o755)
-    for name in ["StorageDaddy.png", "StorageDaddy.icns", "AIContext.png", "PageDoodles.png",
+    for name in ["StorageDaddy.png", "StorageDaddy.icns", "Welcome.png", "PageDoodles.png",
                  "ClaudeOfficial.png", "ChatGPTOfficial.png", "ProviderIcons-provenance.json"]:
         shutil.copyfile(ROOT / "Assets" / name, app / "Contents/Resources" / name)
     for source, name in [("THIRD_PARTY_NOTICES.txt", "MemoryPack-THIRD_PARTY_NOTICES.txt"),

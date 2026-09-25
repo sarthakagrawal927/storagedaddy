@@ -61,7 +61,7 @@ shutil.copy2(support / "memory-pack", pending_helper)
 pending_helper.chmod(0o755)
 pending_helper.replace(contents / "Helpers/memory-pack")
 (contents / "Resources").mkdir(exist_ok=True)
-for name in ["StorageDaddy.png", "StorageDaddy.icns", "AIContext.png", "PageDoodles.png",
+for name in ["StorageDaddy.png", "StorageDaddy.icns", "Welcome.png", "PageDoodles.png",
              "ClaudeOfficial.png", "ChatGPTOfficial.png", "ProviderIcons-provenance.json"]:
     shutil.copy2(root / "Assets" / name, contents / "Resources" / name)
 shutil.copy2(support / "THIRD_PARTY_NOTICES.txt", contents / "Resources" / "MemoryPack-THIRD_PARTY_NOTICES.txt")

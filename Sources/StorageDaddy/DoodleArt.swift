@@ -23,8 +23,8 @@ struct DoodleArt: View {
     }
 }
 
-struct ContextIllustration: View {
-    private static let image = Bundle.main.url(forResource: "AIContext", withExtension: "png").flatMap { NSImage(contentsOf: $0) }
+struct WelcomeIllustration: View {
+    private static let image = Bundle.main.url(forResource: "Welcome", withExtension: "png").flatMap { NSImage(contentsOf: $0) }
     var body: some View {
         if let image = Self.image { Image(nsImage: image).resizable().scaledToFit().accessibilityHidden(true) }
     }
@@ -51,10 +51,10 @@ struct ScanWelcomeView: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 20) {
                         introduction.frame(width: 330, alignment: .leading)
-                        ContextIllustration().frame(width: 260, height: 190)
+                        WelcomeIllustration().frame(width: 260, height: 190)
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        ContextIllustration().frame(width: 220, height: 135)
+                        WelcomeIllustration().frame(width: 220, height: 135)
                         introduction
                     }
                 }
