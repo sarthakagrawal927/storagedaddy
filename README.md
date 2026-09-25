@@ -6,8 +6,8 @@ A free, open-source Mac footprint manager for developers. Understand what
 projects, applications and AI tools leave behind; find large, stale or
 replaceable material; and review every cleanup before moving anything to Trash.
 
-[Download the Mac app](https://storagedaddy.significanthobbies.com/download) ·
-[Website](https://storagedaddy.significanthobbies.com/) ·
+[Download the Mac app](https://storage.daddyrad.com/download) ·
+[Website](https://storage.daddyrad.com/) ·
 [Report an issue](https://github.com/sarthakagrawal927/storagedaddy/issues)
 
 ![storagedaddy exploring a generated demo folder](site/public/storagedaddy/assets/storage-explorer.png)
@@ -28,9 +28,6 @@ sizes and timing are not a whole-disk benchmark.
   and reviewed removal of eligible apps.
 - AI Sessions for standard Claude and Codex transcript locations, independent
   of a disk scan. Older conversations can be exported locally before cleanup.
-- **AI Context (Beta)**: expandable projects, shared Global Skills, source
-  previews and per-agent instruction estimates. These are partial estimates,
-  not measurements of an agent's live prompt.
 - Saved snapshots in History and signed updates through Sparkle.
 
 ## Install
@@ -102,8 +99,8 @@ it. Application associations and developer classifications are best-effort.
 
 AI session counts describe transcript files, including nested subagent files,
 not necessarily distinct conversations. Custom agent home folders are not
-covered by the standard-location inventory. AI Context has bounded discovery
-and cannot prove which instructions, rules or tools a running agent loaded.
+covered by the standard-location inventory. Agent skills, instructions, and
+context policy are inventoried in ContextDaddy, not StorageDaddy.
 
 Conversation archives retain supported prompts, replies and metadata while
 omitting bulky tool traffic, attachments and other records. They are lossy

@@ -28,7 +28,7 @@ filename = f"storagedaddy-{receipt['version']}-build{receipt['build']}-arm64.dmg
 shutil.copy2(source, args.output / filename)
 tool = sparkle_support.ROOT / ".build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 subprocess.run([str(tool), "--account", "storagedaddy-updates", "--download-url-prefix",
-                "https://storagedaddy.significanthobbies.com/updates/", str(args.output)], check=True)
+                "https://storage.daddyrad.com/updates/", str(args.output)], check=True)
 feed = args.output / "appcast.xml"
 root = ET.parse(feed).getroot()
 enclosures = root.findall("./channel/item/enclosure")

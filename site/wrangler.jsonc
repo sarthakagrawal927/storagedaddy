@@ -21,6 +21,10 @@
     {
       "pattern": "storagedaddy.significanthobbies.com",
       "custom_domain": true
+    },
+    {
+      "pattern": "storage.daddyrad.com",
+      "custom_domain": true
     }
   ],
   "analytics_engine_datasets": [

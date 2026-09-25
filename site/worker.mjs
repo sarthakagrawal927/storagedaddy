@@ -1,7 +1,8 @@
 import release from './release.json' with { type: 'json' };
 
 const base = '/storagedaddy';
-const canonicalOrigin = 'https://storagedaddy.significanthobbies.com';
+const canonicalOrigin = 'https://storage.daddyrad.com';
+const legacyOrigin = 'storagedaddy.significanthobbies.com';
 /** @param {Env} env @param {string} event */
 function record(env, event) {
   try {
@@ -16,7 +17,7 @@ function secure(response) {
   result.headers.set('X-Content-Type-Options', 'nosniff');
   result.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   // Fleet's hosted widgets use shadow-root styles and bundled data-URI logos.
-  result.headers.set('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://ingest.sassmaker.com https://sassmaker.com; connect-src https://ingest.sassmaker.com https://sassmaker.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; frame-src https://health.sassmaker.com");
+  result.headers.set('Content-Security-Policy', "default-src 'none'; img-src 'self' data: https://*.clarity.ms https://c.bing.com; style-src 'self' 'unsafe-inline'; script-src 'self' https://ingest.sassmaker.com https://sassmaker.com https://*.clarity.ms https://c.bing.com; connect-src https://ingest.sassmaker.com https://sassmaker.com https://*.clarity.ms https://c.bing.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; frame-src https://health.sassmaker.com");
   return result;
 }
 export default {
@@ -26,6 +27,7 @@ export default {
     if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
     const legacyPath = url.pathname === base || url.pathname.startsWith(base + '/');
     if (legacyPath) return Response.redirect(canonicalOrigin + (url.pathname.slice(base.length) || '/') + url.search, 308);
+    if (url.hostname === legacyOrigin) return Response.redirect(canonicalOrigin + url.pathname + url.search, 308);
     if (url.hostname === 'significanthobbies.com') return new Response('Not found', { status: 404 });
     const isDownload = url.pathname === '/download' || url.pathname === release.path.slice(base.length);
     const assetURL = new URL(request.url);
