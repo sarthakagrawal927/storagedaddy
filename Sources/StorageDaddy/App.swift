@@ -134,6 +134,12 @@ struct FileTypeStat: Identifiable, Sendable {
     private(set) var largestID: Int?
     private var largestBytes: Int64 = 0
 
+    init(name: String, ext: String, kind: FileKind) {
+        self.name = name
+        self.ext = ext
+        self.kind = kind
+    }
+
     mutating func add(_ node: DiskNode, bytes: Int64) {
         count += 1
         let (sum, overflow) = self.bytes.addingReportingOverflow(bytes)
