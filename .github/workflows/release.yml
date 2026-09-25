@@ -1,4 +1,4 @@
-name: Protected release preflight
+name: Protected release candidate
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     environment: production-release
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - name: Check out release branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: sass-maker/saas-maker
-          ref: b5ea3979dd59c7254bf130c06fc12c59718e6ede
+          ref: 110aca5abbda9f57443cf1e6c737e4610b752805
           path: .daddy-tooling
           persist-credentials: false
       - name: Verify release tag and source commit
@@ -69,15 +69,104 @@ jobs:
             --receipt release-candidate-receipt.json
       - name: Record preflight receipt
         run: |
-          echo '### Release preflight only' >> "$GITHUB_STEP_SUMMARY"
-          echo 'The exact tagged source passed candidate checks. No app was signed, notarized, installed, or published.' >> "$GITHUB_STEP_SUMMARY"
+          echo '### Exact source gate' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The exact tagged source passed candidate checks. Packaging and notarization follow in this job.' >> "$GITHUB_STEP_SUMMARY"
           cat release-source-receipt.json release-candidate-receipt.json >> "$GITHUB_STEP_SUMMARY"
       - name: Require protected signing and notarization inputs
         env:
           CERT_READY: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 != '' && secrets.DEVELOPER_ID_CERT_PASSWORD != '' && secrets.DEVELOPER_ID_IDENTITY != '' }}
           NOTARY_READY: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 != '' && secrets.APPLE_NOTARY_KEY_ID != '' && secrets.APPLE_NOTARY_ISSUER_ID != '' }}
+          SPARKLE_READY: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY != '' }}
         run: |
-          if [[ "$CERT_READY" != true || "$NOTARY_READY" != true ]]; then
+          if [[ "$CERT_READY" != true || "$NOTARY_READY" != true || "$SPARKLE_READY" != true ]]; then
             echo 'Protected Developer ID and notary inputs are not configured' >&2
             exit 1
           fi
+      - name: Resolve exact release version
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          match = re.fullmatch(r"v(\d+\.\d+\.\d+)-([1-9]\d*)", os.environ["RELEASE_TAG"])
+          if not match:
+              raise SystemExit("Invalid release tag")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={match.group(1)}\nbuild={match.group(2)}\n")
+          PY
+      - name: Import protected signing inputs
+        env:
+          CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          NOTARY_P8: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          temp = Path(os.environ["RUNNER_TEMP"])
+          (temp / "signing.p12").write_bytes(base64.b64decode(os.environ["CERT_P12"], validate=True))
+          key = temp / "notary.p8"
+          key.write_bytes(base64.b64decode(os.environ["NOTARY_P8"], validate=True))
+          key.chmod(0o600)
+          PY
+          keychain="$RUNNER_TEMP/daddy-release.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+      - name: Prepare checked-in Memory Pack helper
+        run: python3 app/scripts/prepare-memory-pack.py --source app/Vendor/MemoryPack --build
+      - name: Sign and notarize StorageDaddy candidate
+        env:
+          SIGNING_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          python3 app/scripts/release-dmg.py --identity "$SIGNING_IDENTITY" \
+            --output "$RUNNER_TEMP/release" --version "$VERSION" --build "$BUILD" \
+            --source-sha "$SOURCE_SHA" --notary-api-key "$RUNNER_TEMP/notary.p8" \
+            --notary-key-id "$NOTARY_KEY_ID" --notary-issuer-id "$NOTARY_ISSUER_ID"
+      - name: Sign Sparkle feed and validate release metadata
+        env:
+          SPARKLE_ED25519_PRIVATE_KEY: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 app/scripts/prepare-appcast.py "$RUNNER_TEMP/release" "$RUNNER_TEMP/feed" --ed-key-stdin
+          cd "$RUNNER_TEMP/feed"
+          shasum -a 256 ./*.dmg > SHA256SUMS
+          python3 "$GITHUB_WORKSPACE/.daddy-tooling/tooling/daddy-macos/release_contract.py" \
+            --app storagedaddy --repository "$CALLER_REPOSITORY" --tag "$RELEASE_TAG" \
+            --plist "$RUNNER_TEMP/release/image-contents/storagedaddy.app/Contents/Info.plist" \
+            --dmg "$(find "$RUNNER_TEMP/feed" -maxdepth 1 -name '*.dmg' -print -quit)" \
+            --sums "$RUNNER_TEMP/feed/SHA256SUMS" \
+            --notary-json "$RUNNER_TEMP/release/notarization.json" \
+            --feed "$RUNNER_TEMP/feed/appcast.xml" --previous-build 106 \
+            --source-sha "$SOURCE_SHA" \
+            --receipt "$RUNNER_TEMP/feed/release-metadata-receipt.json"
+      - name: Retain qualified release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: storagedaddy-${{ inputs.tag }}-qualified
+          path: |
+            ${{ runner.temp }}/release/*.dmg
+            ${{ runner.temp }}/release/notarization.json
+            ${{ runner.temp }}/release/release-receipt.json
+            ${{ runner.temp }}/feed/*.dmg
+            ${{ runner.temp }}/feed/appcast.xml
+            ${{ runner.temp }}/feed/SHA256SUMS
+            ${{ runner.temp }}/feed/release-metadata-receipt.json
+          if-no-files-found: error
+          retention-days: 7

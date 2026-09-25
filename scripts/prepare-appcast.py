@@ -2,6 +2,7 @@
 """Prepare a signed appcast from an already notarized DMG. Does not deploy."""
 import argparse
 import hashlib
+import os
 import json
 from pathlib import Path
 import shutil
@@ -12,6 +13,7 @@ import sparkle_support
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("release_directory", type=Path)
 parser.add_argument("output", type=Path, help="New directory; must not already exist")
+parser.add_argument("--ed-key-stdin", action="store_true", help="Read protected Sparkle key from the environment")
 args = parser.parse_args()
 sparkle_support.configuration()
 receipt = json.loads((args.release_directory / "release-receipt.json").read_text())
@@ -27,8 +29,13 @@ args.output.mkdir(parents=True, exist_ok=False)
 filename = f"storagedaddy-{receipt['version']}-build{receipt['build']}-arm64.dmg"
 shutil.copy2(source, args.output / filename)
 tool = sparkle_support.ROOT / ".build/artifacts/sparkle/Sparkle/bin/generate_appcast"
-subprocess.run([str(tool), "--account", "storagedaddy-updates", "--download-url-prefix",
-                "https://storage.daddyrad.com/updates/", str(args.output)], check=True)
+key = os.environ.get("SPARKLE_ED25519_PRIVATE_KEY") if args.ed_key_stdin else None
+if args.ed_key_stdin and not key:
+    raise SystemExit("Protected Sparkle signing key is missing")
+signing = ["--ed-key-file", "-"] if args.ed_key_stdin else ["--account", "storagedaddy-updates"]
+subprocess.run([str(tool), *signing, "--download-url-prefix",
+                "https://storage.daddyrad.com/updates/", str(args.output)],
+               check=True, input=key, text=True)
 feed = args.output / "appcast.xml"
 root = ET.parse(feed).getroot()
 enclosures = root.findall("./channel/item/enclosure")
