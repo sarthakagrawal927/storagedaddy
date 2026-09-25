@@ -2,8 +2,8 @@
 
 > Make room. Keep building. An open-source Mac storage analyzer for developers.
 
-Website: https://storagedaddy.significanthobbies.com/
-Download: https://storagedaddy.significanthobbies.com/download
+Website: https://storage.daddyrad.com/
+Download: https://storage.daddyrad.com/download
 Source and feedback: https://github.com/sarthakagrawal927/storagedaddy
 
 ## Availability and pricing

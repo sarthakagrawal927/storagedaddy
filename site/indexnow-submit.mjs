@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
 const KEY = 'bdeaa89dd1f1f7869584f50121c6e7da';
-const HOST = 'storagedaddy.significanthobbies.com';
+const HOST = 'storage.daddyrad.com';
 const keyLocation = `https://${HOST}/${KEY}.txt`;
 
 const sitemap = await readFile(new URL('./public/storagedaddy/sitemap.xml', import.meta.url), 'utf8');

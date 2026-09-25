@@ -21,7 +21,7 @@ function harness({ key = 'ahk_pub_storage', userAgent = 'Mozilla/5.0', tracker }
   const context = {
     document,
     navigator: { userAgent },
-    location: { href: 'https://storagedaddy.significanthobbies.com/', origin: 'https://storagedaddy.significanthobbies.com' },
+    location: { href: 'https://storage.daddyrad.com/', origin: 'https://storage.daddyrad.com' },
     window: { appHealth: tracker },
     URL,
     setTimeout,

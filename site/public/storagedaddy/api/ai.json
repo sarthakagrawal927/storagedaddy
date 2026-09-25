@@ -1,9 +1,9 @@
 {
   "name": "storagedaddy",
   "version": "1",
-  "url": "https://storagedaddy.significanthobbies.com",
-  "llms": "https://storagedaddy.significanthobbies.com/llms.txt",
-  "sitemap": "https://storagedaddy.significanthobbies.com/sitemap.xml",
+  "url": "https://storage.daddyrad.com",
+  "llms": "https://storage.daddyrad.com/llms.txt",
+  "sitemap": "https://storage.daddyrad.com/sitemap.xml",
   "markdown": {
     "suffix": ".md",
     "negotiation": false
@@ -11,8 +11,8 @@
   "surfaces": [
     {
       "id": "home",
-      "url": "https://storagedaddy.significanthobbies.com/",
-      "md": "https://storagedaddy.significanthobbies.com/index.md",
+      "url": "https://storage.daddyrad.com/",
+      "md": "https://storage.daddyrad.com/index.md",
       "kind": "static"
     }
   ],
