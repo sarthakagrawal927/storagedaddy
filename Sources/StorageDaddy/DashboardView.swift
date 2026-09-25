@@ -29,41 +29,317 @@ import DiskCore
 struct DashboardView: View {
     @EnvironmentObject var m: ExplorerModel
     @ObservedObject var dashboard: DashboardModel
+    @State private var showingSystemDetails = false
+
+    private var scanLeaders: [DiskNode] {
+        guard let scan = m.scan, let root = scan.nodes.first else { return [] }
+        return root.children.map { scan.nodes[$0] }
+            .filter { $0.allocatedBytes > 0 }
+            .sorted { $0.allocatedBytes > $1.allocatedBytes }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Dashboard").font(.largeTitle.weight(.semibold))
-                DoodleArt(topic: .overview).frame(width: 72, height: 72)
-                Spacer()
-                if let report = dashboard.report {
-                    Text("Checked \(report.collectedAt, format: .dateTime.hour().minute().second())")
-                        .font(.caption).foregroundStyle(Tints.secondaryText)
-                }
-                Button("Refresh", action: dashboard.refresh).disabled(dashboard.loading || m.busy)
-                if dashboard.loading { ProgressView().controlSize(.small) }
-            }
-            Text("Mounted volumes, shared APFS container space, and what the drive reports about itself. Read-only — nothing is cleaned up from here.")
-                .foregroundStyle(Tints.secondaryText)
+        GeometryReader { geometry in
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 22) {
+                    header
                     if let report = dashboard.report {
-                        ForEach(report.containers) { container in
-                            ContainerCard(container: container)
+                        let wide = geometry.size.width >= 760
+                        let layout = wide
+                            ? AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+                            : AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+                        layout {
+                            capacityPanel(report)
+                                .frame(maxWidth: .infinity)
+                            cleanupPanel(minHeight: wide ? 294 : 190)
+                                .frame(width: wide ? min(340, geometry.size.width * 0.43) : nil)
+                                .frame(maxWidth: wide ? nil : .infinity)
                         }
-                        volumesSection(report.volumes)
-                        healthSection
-                        pressureSection(report.pressure)
+                        latestScanPanel
+                        layout {
+                            DashboardTrashPanel(excludedFolders: m.excludedFolders)
+                                .frame(maxWidth: .infinity)
+                            usefulSignals(report)
+                                .frame(maxWidth: .infinity)
+                        }
+                        systemDetails(report)
                     } else {
-                        StorageEmptyView("Reading system storage…", systemImage: "internaldrive", description: Text("Collecting volume, device and pressure information."))
+                        StorageEmptyView("Reading system storage…", systemImage: "internaldrive", description: Text("Collecting capacity and device information."))
                     }
                 }
+                .padding(24)
+                .frame(maxWidth: 1320, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
+            .scrollIndicators(.visible)
         }
-        .padding(24)
         .background(Color.black)
         .buttonStyle(StorageButtonStyle())
         .task { dashboard.loadIfNeeded() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("YOUR MAC").font(.system(size: 11, weight: .bold)).tracking(1.5).foregroundStyle(Tints.mint)
+                Text("Storage dashboard").font(.system(size: 32, weight: .semibold, design: .rounded)).tracking(-0.7)
+                Text("Space, the latest scan, and what is worth reviewing.")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 8) {
+                Button("Refresh", action: dashboard.refresh).disabled(dashboard.loading || m.busy)
+                if let report = dashboard.report {
+                    Text("Checked \(report.collectedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(Tints.secondaryText)
+                }
+            }
+            if dashboard.loading { ProgressView().controlSize(.small) }
+        }
+    }
+
+    private func capacityPanel(_ report: SystemStorageReport) -> some View {
+        let capacity = StartupCapacity(volumes: report.volumes)
+        let startup = report.volumes.first(where: \.isStartupData)
+            ?? report.volumes.first(where: { $0.mountPoint == "/" })
+        return VStack(alignment: .leading, spacing: 18) {
+            Label("STARTUP STORAGE", systemImage: "internaldrive.fill")
+                .font(.system(size: 11, weight: .bold)).tracking(1.2).foregroundStyle(Tints.mint)
+            if let capacity {
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    Text("\(capacity.usedPercent)%")
+                        .font(.system(size: 76, weight: .semibold, design: .rounded))
+                        .tracking(-4).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("used").font(.title3.weight(.semibold))
+                        Text("\(DiskFormat.bytes(capacity.available)) available")
+                            .font(.callout).foregroundStyle(Tints.mint).monospacedDigit()
+                    }
+                }
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Tints.mint.opacity(0.2))
+                        Capsule().fill(Tints.mint)
+                            .frame(width: max(2, geometry.size.width * capacity.usedFraction))
+                    }
+                }
+                .frame(height: 12)
+                HStack {
+                    Text("\(DiskFormat.bytes(capacity.used)) used")
+                    Spacer()
+                    Text("\(DiskFormat.bytes(capacity.total)) total")
+                }
+                .font(.caption).monospacedDigit().foregroundStyle(Tints.secondaryText)
+                if let purgeable = startup?.purgeableCapacity, purgeable > 0 {
+                    Text("\(DiskFormat.bytes(purgeable)) purgeable · macOS may reclaim this when needed")
+                        .font(.caption).foregroundStyle(Tints.cyan)
+                }
+                Text("Startup capacity is a macOS estimate. Scan totals below cover only the location scanned.")
+                    .font(.caption2).foregroundStyle(Tints.secondaryText)
+            } else {
+                Text("Startup capacity unavailable")
+                    .font(.title3).foregroundStyle(Tints.secondaryText)
+                Text("The latest scan and cleanup review are still available below.")
+                    .font(.caption).foregroundStyle(Tints.secondaryText)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, minHeight: 294, alignment: .topLeading)
+        .background(Tints.mint.opacity(0.10), in: RoundedRectangle(cornerRadius: 17))
+    }
+
+    private func cleanupPanel(minHeight: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("EASY CLEANUP", systemImage: "sparkles")
+                .font(.system(size: 11, weight: .bold)).tracking(1.2).foregroundStyle(Tints.yellow)
+            if let scan = m.scan {
+                if m.exclusionResultsStale {
+                    Text("Rescan needed").font(.system(size: 30, weight: .semibold, design: .rounded))
+                    Text("Excluded folders changed since this scan. Refresh before reviewing candidates.")
+                        .font(.callout).foregroundStyle(Tints.secondaryText)
+                    Button("Rescan this location", action: m.rescan).disabled(m.busy)
+                } else {
+                    Text(DiskFormat.bytes(m.easyCleanupBytes))
+                        .font(.system(size: 48, weight: .semibold, design: .rounded))
+                        .tracking(-1.5).monospacedDigit().lineLimit(1).minimumScaleFactor(0.75)
+                    Text("\(m.easyCleanupIDs.count) usually regenerable \(m.easyCleanupIDs.count == 1 ? "item" : "items") in this scan")
+                        .font(.callout.weight(.medium))
+                    Text("Candidates only. Each item is checked before staging and nothing moves until you confirm.")
+                        .font(.caption).foregroundStyle(Tints.secondaryText)
+                    Button("Review candidates") { m.openStorage(.cleanup) }
+                        .disabled(m.busy || m.easyCleanupIDs.isEmpty)
+                    if !m.staged.isEmpty {
+                        Text("\(m.staged.count) already staged for review")
+                            .font(.caption).foregroundStyle(Tints.yellow)
+                    }
+                }
+                Text("From \(StorageLabels.location(scan.rootPath))")
+                    .font(.caption2).foregroundStyle(Tints.secondaryText).lineLimit(1)
+                    .help(scan.rootPath)
+            } else {
+                Text("Scan to find candidates")
+                    .font(.title3.weight(.semibold))
+                Text("Build outputs, dependency folders and package caches can be suggested after a scan.")
+                    .font(.caption).foregroundStyle(Tints.secondaryText)
+                Button("Scan user caches", action: m.scanUserCaches).disabled(m.busy)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+        .background(Tints.yellow.opacity(0.11), in: RoundedRectangle(cornerRadius: 17))
+    }
+
+    private var latestScanPanel: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Latest scan").font(.title3.weight(.semibold))
+                Spacer()
+                if m.scan != nil { Button("Open Explore") { m.openStorage(.explore) }.font(.callout) }
+            }
+            if let scan = m.scan, let root = scan.nodes.first {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(DiskFormat.bytes(root.allocatedBytes))
+                        .font(.system(size: 32, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                    Text("on disk in \(StorageLabels.location(scan.rootPath))")
+                        .font(.callout).foregroundStyle(Tints.secondaryText)
+                        .lineLimit(2).help(scan.rootPath)
+                    Spacer(minLength: 0)
+                }
+                scanComposition(root: root)
+                HStack(spacing: 18) {
+                    ForEach(Array(scanLeaders.prefix(3).enumerated()), id: \.element.id) { index, node in
+                        Button {
+                            m.openStorage(.explore)
+                            m.selected = node.id
+                        } label: {
+                            HStack(spacing: 6) {
+                                Circle().fill(Tints.colors[index % Tints.colors.count]).frame(width: 8, height: 8)
+                                Text("\(StorageLabels.name(node)) · \(DiskFormat.bytes(node.allocatedBytes))")
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain).font(.caption)
+                        .help(scan.url(for: node.id).path)
+                    }
+                }
+            } else {
+                Text("No scan yet. Scan a folder to see what takes space and which items may be reviewed for cleanup.")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
+            }
+        }
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) { Divider().overlay(Tints.secondaryText.opacity(0.18)) }
+    }
+
+    private func scanComposition(root: DiskNode) -> some View {
+        let leaders = Array(scanLeaders.prefix(3))
+        return GeometryReader { geometry in
+            Canvas { context, size in
+                let total = Double(max(1, root.allocatedBytes))
+                var offset = 0.0
+                for (index, node) in leaders.enumerated() {
+                    let width = min(size.width - offset, size.width * Double(node.allocatedBytes) / total)
+                    guard width > 0 else { continue }
+                    context.fill(Path(CGRect(x: offset, y: 0, width: width, height: size.height)),
+                                 with: .color(Tints.colors[index % Tints.colors.count]))
+                    offset += width
+                }
+                if offset < size.width {
+                    context.fill(Path(CGRect(x: offset, y: 0, width: size.width - offset, height: size.height)),
+                                 with: .color(Tints.secondaryText.opacity(0.18)))
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .frame(height: 18)
+        .accessibilityLabel("Largest three items occupy \(leaders.map { StorageLabels.name($0) }.joined(separator: ", ")) of this scan")
+    }
+
+    private func usefulSignals(_ report: SystemStorageReport) -> some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Text("Coverage & signals").font(.title3.weight(.semibold))
+            if let scan = m.scan, scan.skipped > 0 {
+                Label("\(scan.skipped.formatted()) items skipped by the latest scan", systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(Tints.yellow)
+                Text("The scan total is partial. Open Explore for the scanned items and coverage details.")
+                    .font(.caption).foregroundStyle(Tints.secondaryText)
+            }
+            if let snapshots = report.pressure.localSnapshotNames, !snapshots.isEmpty {
+                Label("\(snapshots.count) local APFS \(snapshots.count == 1 ? "snapshot" : "snapshots")", systemImage: "camera.aperture")
+                    .font(.callout)
+            }
+            if let used = report.pressure.swapUsedBytes, used > 0 {
+                Label("\(DiskFormat.bytes(Int64(clamping: used))) swap in use", systemImage: "arrow.triangle.swap")
+                    .font(.callout)
+            }
+            if m.scan?.skipped == 0,
+               (report.pressure.localSnapshotNames?.isEmpty ?? true),
+               (report.pressure.swapUsedBytes ?? 0) == 0 {
+                Text("No active swap or local snapshots reported.")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
+            } else if m.scan == nil,
+                      (report.pressure.localSnapshotNames?.isEmpty ?? true),
+                      (report.pressure.swapUsedBytes ?? 0) == 0 {
+                Text("Scan coverage appears here after a scan.")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
+            }
+            Button("Drive and volume details") { showingSystemDetails = true }
+                .font(.callout)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func systemDetails(_ report: SystemStorageReport) -> some View {
+        DisclosureGroup(isExpanded: $showingSystemDetails) {
+            VStack(alignment: .leading, spacing: 22) {
+                otherContainersSection(report)
+                volumesSection(report.volumes)
+                healthSection
+                pressureSection(report.pressure)
+            }
+            .padding(.top, 16)
+        } label: {
+            HStack {
+                Label("System details", systemImage: "externaldrive")
+                    .font(.headline)
+                Spacer()
+                Text("APFS pools · mounted volumes · drive health · pressure")
+                    .font(.caption).foregroundStyle(Tints.secondaryText)
+            }
+        }
+        .padding(20)
+        .background(Tints.secondaryText.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func otherContainersSection(_ report: SystemStorageReport) -> some View {
+        let startupContainer = report.volumes.first(where: \.isStartupData)?.apfsContainer
+        let others = report.containers.filter { $0.name != startupContainer }
+        return VStack(alignment: .leading, spacing: 9) {
+            Text("OTHER APFS POOLS").font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(Tints.secondaryText)
+            if others.isEmpty {
+                Text("No other APFS pools found.").font(.caption).foregroundStyle(Tints.secondaryText)
+            }
+            ForEach(others) { container in
+                HStack(spacing: 12) {
+                    Text(container.volumeNames.first ?? container.name).font(.callout.weight(.medium)).lineLimit(1)
+                    Text(container.name).font(.caption2).foregroundStyle(Tints.secondaryText)
+                    Spacer(minLength: 8)
+                    if let total = container.totalCapacity, let free = container.freeCapacity {
+                        Text("\(DiskFormat.bytes(max(0, total - free))) used · \(DiskFormat.bytes(free)) free")
+                            .font(.caption).monospacedDigit().foregroundStyle(Tints.secondaryText)
+                    } else {
+                        Text("Capacity unavailable").font(.caption).foregroundStyle(Tints.secondaryText)
+                    }
+                }
+                .padding(.vertical, 5)
+            }
+        }
     }
 
     // MARK: - Volumes
@@ -256,44 +532,76 @@ struct DashboardView: View {
     }
 }
 
-private struct ContainerCard: View {
-    let container: APFSContainerInfo
+private struct DashboardTrashPanel: View {
+    let excludedFolders: [String]
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var inventory = TrashInventoryModel()
+    @State private var hasFullDiskAccess = false
+    private let trash = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash", isDirectory: true)
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(container.volumeNames.first ?? container.name).font(.headline)
-                Text("APFS container \(container.name)").font(.caption).foregroundStyle(Tints.secondaryText)
+                Label("In Trash", systemImage: "trash").font(.title3.weight(.semibold))
                 Spacer()
+                if inventory.loading { ProgressView().controlSize(.small) }
+                if inventory.scan != nil {
+                    Button("Refresh") { inventory.refresh(excludedFolders: excludedFolders) }
+                        .font(.caption).disabled(inventory.loading)
+                }
             }
-            if let total = container.totalCapacity, let free = container.freeCapacity {
-                let used = max(0, total - free)
-                GeometryReader { g in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 5).fill(Tints.secondaryText.opacity(0.12))
-                        RoundedRectangle(cornerRadius: 5).fill(Tints.mint)
-                            .frame(width: max(2, g.size.width * Double(used) / Double(max(1, total))))
+            if let scan = inventory.scan {
+                Text("\(DiskFormat.bytes(inventory.allocatedBytes)) in \(inventory.items.count.formatted()) Home Trash \(inventory.items.count == 1 ? "item" : "items")")
+                    .font(.callout.weight(.medium)).monospacedDigit()
+                ForEach(Array(inventory.items.prefix(3))) { item in
+                    HStack(spacing: 8) {
+                        Image(systemName: item.isDirectory ? "folder" : "doc")
+                            .foregroundStyle(Tints.mint)
+                        Text(item.name).lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Text(DiskFormat.bytes(item.allocatedBytes))
+                            .monospacedDigit().foregroundStyle(Tints.secondaryText)
                     }
-                }.frame(height: 14)
-                HStack {
-                    Text("\(DiskFormat.bytes(used)) used of \(DiskFormat.bytes(total))").font(.callout).monospacedDigit()
-                    Spacer()
-                    Text("\(DiskFormat.bytes(free)) free").font(.callout).monospacedDigit().foregroundStyle(Tints.mint)
+                    .font(.caption)
+                    .help(scan.url(for: item.id).path)
                 }
-                if let purgeable = container.purgeableCapacity, purgeable > 0 {
-                    Text("+ \(DiskFormat.bytes(purgeable)) purgeable — macOS reclaims it when space is needed")
-                        .font(.caption).foregroundStyle(Tints.cyan)
+                if inventory.items.count > 3 {
+                    Text("+ \(inventory.items.count - 3) more items")
+                        .font(.caption).foregroundStyle(Tints.secondaryText)
                 }
-                if container.volumeNames.count > 1 {
-                    Text("Shared by \(container.volumeNames.joined(separator: ", ")) — APFS volumes in one container share the same pool, so this space is counted once.")
-                        .font(.caption2).foregroundStyle(Tints.secondaryText)
+                if scan.skipped > 0 {
+                    Text("\(scan.skipped.formatted()) items skipped; measured size is partial.")
+                        .font(.caption).foregroundStyle(Tints.yellow)
                 }
-            } else {
-                Text("Capacity unavailable").font(.caption).foregroundStyle(Tints.secondaryText)
+            } else if let error = inventory.error {
+                Text(error).font(.caption).foregroundStyle(Tints.yellow)
+            } else if !hasFullDiskAccess {
+                Text("Review the items in Finder. Listing Home Trash here needs Full Disk Access; this dashboard will not ask for it.")
+                    .font(.caption).foregroundStyle(Tints.secondaryText)
+            } else if inventory.loading {
+                Text("Reading Home Trash item names and sizes…")
+                    .font(.caption).foregroundStyle(Tints.secondaryText)
             }
+            Button("Open Trash in Finder") { NSWorkspace.shared.open(trash) }
+                .font(.callout)
+            Text("Current user's Home Trash only. Nothing is emptied here.")
+                .font(.caption2).foregroundStyle(Tints.secondaryText)
+            Spacer(minLength: 0)
         }
-        .padding(14)
-        .background(Tints.mint.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Tints.mint.opacity(0.3), lineWidth: 1))
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .onAppear(perform: updateAccess)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { updateAccess() }
+        }
+        .onDisappear { inventory.cancel() }
+    }
+
+    private func updateAccess() {
+        hasFullDiskAccess = FullDiskAccessProbe.status() == .accessible
+        if hasFullDiskAccess && inventory.scan == nil && !inventory.loading {
+            inventory.refresh(excludedFolders: excludedFolders)
+        }
     }
 }
 

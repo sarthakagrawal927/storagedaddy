@@ -124,7 +124,7 @@ struct ExplorerView: View {
         switch m.workspace {
         case .aiSessions: m.aiSessionsSection == .archive ? "Local conversation archive" : "Local AI history inventory"
         case .applications: "Installed applications"
-        case .dashboard: "Volumes, drive health and pressure"
+        case .dashboard: "Capacity, cleanup and system details"
         case .acknowledgments: "About storagedaddy"
         default: m.progress
         }
@@ -144,6 +144,7 @@ struct ExplorerView: View {
         ScanWelcomeView(
             scanDisk: { accessIntroductionSeen = true; m.showWelcome = false; choosingDisk = true },
             scanFolder: { accessIntroductionSeen = true; m.showWelcome = false; m.chooseFolder() },
+            scanHome: { accessIntroductionSeen = true; m.showWelcome = false; m.scanHomeFolder() },
             scanCaches: { accessIntroductionSeen = true; m.showWelcome = false; m.scanUserCaches() },
             later: {
                 accessIntroductionSeen = true
@@ -226,6 +227,7 @@ struct ExplorerView: View {
         ScanWelcomeView(
             scanDisk: { choosingDisk = true },
             scanFolder: m.chooseFolder,
+            scanHome: m.scanHomeFolder,
             scanCaches: m.scanUserCaches
         )
     }
@@ -452,6 +454,9 @@ struct InspectorView: View {
                     }
                     if n.isDirectory { Button("Open Folder", systemImage: "folder") { m.open(n) } }
                     CleanupFlag(category: m.cleanupCategory(n.id))
+                    if let note = CleanupGuidance.chromeCacheNote(path: scan.url(for: n.id).path) {
+                        Text(note).font(.caption).foregroundStyle(Tints.yellow)
+                    }
                     Button(m.staged.contains(n.id) ? "Staged for Cleanup" : "Add to Cleanup", systemImage: "tray.and.arrow.down") { m.stage(n.id) }.buttonStyle(StorageButtonStyle(prominent: true)).disabled(m.staged.contains(n.id) || m.busy || m.monitoring || n.parent == nil)
                     if scan.skipped > 0 {
                         Text("Some locations were skipped. Add to Cleanup checks this item separately and asks you to review any contents it cannot verify.")

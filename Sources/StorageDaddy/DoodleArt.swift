@@ -33,6 +33,7 @@ struct WelcomeIllustration: View {
 struct ScanWelcomeView: View {
     let scanDisk: () -> Void
     let scanFolder: () -> Void
+    let scanHome: () -> Void
     let scanCaches: () -> Void
     var later: (() -> Void)? = nil
     @State private var accessDetails = false
@@ -66,12 +67,14 @@ struct ScanWelcomeView: View {
                 HStack(spacing: 12) {
                     Button("Scan a Disk…", systemImage: "internaldrive.fill", action: scanDisk)
                         .buttonStyle(StorageButtonStyle(prominent: true)).controlSize(.large)
-                    Button("Quick Cache Scan", systemImage: "archivebox", action: scanCaches).controlSize(.large)
+                    Button("Scan Home Folder", systemImage: "house", action: scanHome).controlSize(.large)
                     Button("Scan a Folder…", systemImage: "folder.badge.plus", action: scanFolder)
                         .controlSize(.large)
                 }
-                Text("Scan a disk for the complete storage picture. Quick Cache Scan checks only your user cache folder; Scan a Folder limits the result to one place.")
+                Text("Scan Home Folder finds caches and node_modules in readable locations. Without Full Disk Access, protected folders are skipped to avoid macOS prompts; choose one with Scan a Folder if you want it included. Scan a Disk covers the rest of that volume.")
                     .font(.callout).foregroundStyle(Tints.secondaryText)
+                Button("Scan only user caches (faster)", systemImage: "archivebox", action: scanCaches)
+                    .font(.callout)
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "lock.shield").foregroundStyle(Tints.mint).padding(.top, 2)
                     VStack(alignment: .leading, spacing: 7) {
@@ -80,7 +83,7 @@ struct ScanWelcomeView: View {
                             .font(.callout).foregroundStyle(Tints.secondaryText)
                         if accessStatus != .accessible {
                             HStack(spacing: 12) {
-                                Button("Set up Full Disk Access") { accessDetails.toggle() }
+                                Button("Access options") { accessDetails.toggle() }
                                 Text("Or scan just one folder").font(.caption).foregroundStyle(Tints.secondaryText)
                             }
                         }
@@ -193,9 +196,9 @@ struct ScanWelcomeView: View {
         case .accessible:
             "Protected-folder access is available. Choose a scan option above."
         case .limited:
-            "A protected location was blocked by macOS. Enable storagedaddy in System Settings for broader coverage."
+            "Automatic scans skip macOS-protected folders. Choose a specific folder to include it."
         case .unknown:
-            "Access could not be confirmed from the available protected locations. Review the setting before a Mac-wide scan."
+            "Protected-folder access could not be confirmed. Automatic scans skip those folders to avoid prompts."
         }
     }
 
@@ -204,7 +207,7 @@ struct ScanWelcomeView: View {
         case .accessible:
             "Some protected or excluded items can still be skipped by macOS."
         case .limited, .unknown:
-            "Without Full Disk Access, some locations are skipped and macOS may ask for permission when you scan other protected folders."
+            "Full Disk Access is optional. A folder you choose may still need macOS approval; automatic scans avoid those prompts."
         }
     }
 

@@ -2,6 +2,13 @@ import Foundation
 
 /// Recoverability guidance, never proof that a folder is unused or safe to delete.
 public enum CleanupGuidance {
+    public static func chromeCacheNote(path: String, home: String = FileManager.default.homeDirectoryForCurrentUser.path) -> String? {
+        let cache = URL(fileURLWithPath: home).appendingPathComponent("Library/Caches/Google/Chrome").standardizedFileURL.path
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard normalized == cache || normalized.hasPrefix(cache + "/") else { return nil }
+        return "This is Chrome cache, separate from your browser profile. Clearing it can remove offline site data and make pages reload; cookies and sign-ins usually remain. Quit Chrome before reviewing cleanup."
+    }
+
     public static func label(for category: DeveloperCategory?) -> String {
         switch category {
         case .packageCaches, .nodeModules, .installedModules: "Usually regenerable"

@@ -4,6 +4,15 @@ import XCTest
 @testable import DiskCore
 
 final class StorageAccessTests: XCTestCase {
+    func testAutomaticScansSkipPromptingHomeFoldersOnlyWithoutFullDiskAccess() {
+        let home = URL(fileURLWithPath: "/Users/tester")
+        let paths = AutomaticScanPrivacy.promptAvoidancePaths(homeDirectory: home, accessStatus: .limited)
+        XCTAssertEqual(Set(paths), Set(["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"].map {
+            home.appendingPathComponent($0).path
+        }))
+        XCTAssertEqual(AutomaticScanPrivacy.promptAvoidancePaths(homeDirectory: home, accessStatus: .accessible), [])
+    }
+
     func testMissingLocationsAreUnknownRatherThanDenied() {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         XCTAssertEqual(FullDiskAccessProbe.status(homeDirectory: home), .unknown)

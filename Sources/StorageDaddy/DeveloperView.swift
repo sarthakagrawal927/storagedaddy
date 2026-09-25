@@ -109,6 +109,7 @@ extension DeveloperCategory {
 struct DeveloperView: View {
     @EnvironmentObject var m: ExplorerModel
     @State private var showsCategories = false
+    @State private var showsAllProjectDependencies = false
     @State private var category: DeveloperCategory = .claudeSessions
     private var group: DeveloperGroup? { m.developerGroups.first { $0.category == category } }
     private var total: Int64 { m.developerGroups.reduce(0) { $0 + $1.allocatedBytes } }
@@ -133,6 +134,10 @@ struct DeveloperView: View {
                 header
                 overview
                 storageFamilyGrid
+                if m.projectDependenciesBusy || m.projectDependencies != nil ||
+                    (m.scan?.rootPath == FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches").path && !m.promptAvoidanceFolders.isEmpty) {
+                    projectDependencies
+                }
                 cleanupOpportunities
                 DeveloperReportView()
                 Button { showsCategories.toggle() } label: {
@@ -174,6 +179,54 @@ struct DeveloperView: View {
                 }
             }
         }
+    }
+    private var projectDependencies: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Project dependencies outside caches", systemImage: "shippingbox")
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                if m.projectDependenciesBusy { ProgressView().controlSize(.small) }
+            }
+            if let result = m.projectDependencies {
+                Text("\(result.paths.count.formatted()) node_modules folders found in visible Home folders · \(result.directoriesVisited.formatted()) directories checked\(result.skippedDirectories > 0 ? " · \(result.skippedDirectories) skipped" : "")\(m.projectDependenciesBusy ? " · searching…" : result.complete ? " · search finished" : " · search limit reached")")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
+                if !m.promptAvoidanceFolders.isEmpty && result.skippedDirectories > 0 {
+                    Text("Protected Home folders were skipped to avoid macOS permission prompts. Use Scan Folder to include one.")
+                        .font(.caption).foregroundStyle(Tints.secondaryText)
+                }
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    ForEach(result.paths.prefix(showsAllProjectDependencies ? result.paths.count : 8), id: \.self) { path in
+                        Button { m.start(URL(fileURLWithPath: path)) } label: {
+                            HStack {
+                                Text(path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
+                                    .lineLimit(1).truncationMode(.middle)
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                            }
+                        }.buttonStyle(StorageButtonStyle())
+                    }
+                }
+                if result.paths.count > 8 {
+                    Button(showsAllProjectDependencies ? "Show fewer" : "Show all \(result.paths.count) folders") {
+                        showsAllProjectDependencies.toggle()
+                    }.buttonStyle(StorageButtonStyle())
+                }
+                Text("Paths only. These folders are outside the cache total and cleanup list. Open one to measure its size. Library, excluded folders, links and hidden build output are not searched; project worktrees are included.")
+                    .font(.caption).foregroundStyle(Tints.secondaryText)
+            } else if !m.projectDependenciesBusy && !m.promptAvoidanceFolders.isEmpty {
+                Text("Automatic project search is paused to avoid macOS permission prompts. Choose a project folder to measure its node_modules and other build output.")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
+                Button("Scan a Project Folder…", action: m.chooseFolder)
+                    .buttonStyle(StorageButtonStyle())
+            } else {
+                Text("Looking for project node_modules folders…")
+                    .font(.callout).foregroundStyle(Tints.secondaryText)
+            }
+        }
+        .padding(16)
+        .background(Tints.mint.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Tints.mint.opacity(0.22)))
     }
     private var header: some View {
         HStack(alignment: .top) {
