@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Prepare a signed appcast from an already notarized DMG. Does not deploy."""
 import argparse
-import hashlib
 import os
 import json
 from pathlib import Path
-import shutil
 import subprocess
-import xml.etree.ElementTree as ET
+import appcast_core
 import sparkle_support
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -19,15 +17,9 @@ sparkle_support.configuration()
 receipt = json.loads((args.release_directory / "release-receipt.json").read_text())
 if not all(receipt.get(key) for key in ["notarized", "stapled", "signed"]):
     raise SystemExit("Only signed, notarized and stapled releases can enter the appcast")
-sources = list(args.release_directory.glob("*.dmg"))
-if len(sources) != 1:
-    raise SystemExit("Expected exactly one release DMG")
-source = sources[0]
-if hashlib.sha256(source.read_bytes()).hexdigest() != receipt["dmgSha256"]:
-    raise SystemExit("Release checksum mismatch")
-args.output.mkdir(parents=True, exist_ok=False)
+source = appcast_core.one_release_dmg(args.release_directory)
 filename = f"storagedaddy-{receipt['version']}-build{receipt['build']}-arm64.dmg"
-shutil.copy2(source, args.output / filename)
+copied = appcast_core.stage_dmg(source, args.output, filename, receipt["dmgSha256"])
 tool = sparkle_support.ROOT / ".build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 key = os.environ.get("SPARKLE_ED25519_PRIVATE_KEY") if args.ed_key_stdin else None
 if args.ed_key_stdin and not key:
@@ -37,11 +29,7 @@ subprocess.run([str(tool), *signing, "--download-url-prefix",
                 "https://storage.daddyrad.com/updates/", str(args.output)],
                check=True, input=key, text=True)
 feed = args.output / "appcast.xml"
-root = ET.parse(feed).getroot()
-enclosures = root.findall("./channel/item/enclosure")
-if not enclosures:
-    raise SystemExit("Empty update feed: do not publish")
-for enclosure in enclosures:
-    if not enclosure.get("{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature"):
-        raise SystemExit("Unsigned enclosure: do not publish")
+appcast_core.validate_signed_feed(
+    feed, f"https://storage.daddyrad.com/updates/{filename}", copied.stat().st_size
+)
 print(feed)
