@@ -4,13 +4,12 @@
         <title>storagedaddy</title>
         <item>
             <title>0.1.3</title>
-            <pubDate>Fri, 25 Sep 2026 12:26:12 +0530</pubDate>
-            <sparkle:version>85</sparkle:version>
+            <pubDate>Fri, 25 Sep 2026 18:19:22 +0530</pubDate>
+            <sparkle:version>106</sparkle:version>
             <sparkle:shortVersionString>0.1.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://storage.daddyrad.com/updates/storagedaddy-0.1.3-build85-arm64.dmg" length="6861312" type="application/octet-stream" sparkle:edSignature="zbXIWX/BjxU9kP5I1apoTt6iuqrNS9ke7LaPIEHbwap6In/Js59KiPCToJDgX33r2qIjIKO4fRIKYQKHWGcPBw=="/>
-            <description>New dashboard, findings and file-type views, easier reviewed cleanup, and a startup-storage summary on the welcome screen. AI Context moves to ContextDaddy. Capacity figures are macOS estimates; scanned file totals remain separate.</description>
+            <enclosure url="https://storage.daddyrad.com/updates/storagedaddy-0.1.3-build106-arm64.dmg" length="7059317" type="application/octet-stream" sparkle:edSignature="cIfmegELM+E1Rxh2Hm6ySlf0Qm7n/OtciYgqcVOvnzQCFDekuELTK8p4oPwO7ny1VRH5WmjFlhbKCQYp14plAA=="/>
         </item>
     </channel>
 </rss>

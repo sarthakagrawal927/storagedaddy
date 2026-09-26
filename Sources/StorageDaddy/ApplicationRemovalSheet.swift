@@ -31,6 +31,10 @@ struct ApplicationRemovalSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Label("Only this application moves to Trash.", systemImage: "app.badge")
                 Label("Documents, preferences and support data stay on your Mac.", systemImage: "folder")
+                if Bundle(url: review.application.url)?.bundleIdentifier == "com.google.Chrome" {
+                    Text("Your Chrome profile, bookmarks, saved site data and sign-ins are stored outside the app bundle. Moving Chrome to Trash does not erase or reset them. Removing browser data separately can sign you out.")
+                        .font(.callout).foregroundStyle(Tints.secondaryText)
+                }
                 Label("You can restore it from Trash in Finder.", systemImage: "arrow.uturn.backward")
             }.font(.callout)
             Text("Space is not freed until Trash is emptied. storagedaddy will not empty it.")

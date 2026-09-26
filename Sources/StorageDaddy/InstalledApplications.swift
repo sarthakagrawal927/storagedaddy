@@ -17,7 +17,12 @@ struct InstalledApplication: Identifiable, Sendable {
 }
 
 enum ApplicationCategory {
-    static func title(for rawValue: String?) -> String {
+    static func title(for rawValue: String?, bundleIdentifier: String? = nil) -> String {
+        // Existing signed releases of these apps predate category metadata.
+        if rawValue == nil, let bundleIdentifier,
+           ["com.significanthobbies.performancedaddy", "com.significanthobbies.browserdaddy"].contains(bundleIdentifier) {
+            return "Utilities"
+        }
         guard let rawValue, rawValue.hasPrefix("public.app-category.") else { return "Uncategorized" }
         let key = String(rawValue.dropFirst("public.app-category.".count))
         let gameCategories: Set<String> = ["games", "action-games", "adventure-games", "arcade-games", "board-games", "card-games", "casino-games", "dice-games", "educational-games", "family-games", "kids-games", "music-games", "puzzle-games", "racing-games", "role-playing-games", "simulation-games", "sports-games", "strategy-games", "trivia-games", "word-games"]
@@ -260,7 +265,7 @@ enum ApplicationSort: String, CaseIterable {
                 let declaredName = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
                     ?? (bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String)
                 let name = declaredName?.trimmingCharacters(in: .whitespacesAndNewlines)
-                found[url.path] = InstalledApplication(id: url.path, name: name.flatMap { $0.isEmpty ? nil : $0 } ?? url.deletingPathExtension().lastPathComponent, url: url, allocatedBytes: nil, lastUsed: lastUsed, iconPNG: appIcon(at: url), category: ApplicationCategory.title(for: bundle?.object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String))
+                found[url.path] = InstalledApplication(id: url.path, name: name.flatMap { $0.isEmpty ? nil : $0 } ?? url.deletingPathExtension().lastPathComponent, url: url, allocatedBytes: nil, lastUsed: lastUsed, iconPNG: appIcon(at: url), category: ApplicationCategory.title(for: bundle?.object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String, bundleIdentifier: bundle?.bundleIdentifier))
             }
         }
         return found.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

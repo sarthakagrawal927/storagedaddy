@@ -17,8 +17,16 @@ import DiskCore
             }
             print(root.path); return
         }
-        guard args.count >= 3, ["compare", "compare-live", "scan", "profile", "report"].contains(args[1]) else { print("StorageBench fixture [count]\nStorageBench compare <fixture-folder>\nStorageBench compare-live <fixture-folder>\nStorageBench scan <folder> [--live]\nStorageBench report <folder>"); return }
+        guard args.count >= 3, ["compare", "compare-live", "scan", "profile", "report", "discover-dependencies"].contains(args[1]) else { print("StorageBench fixture [count]\nStorageBench compare <fixture-folder>\nStorageBench compare-live <fixture-folder>\nStorageBench scan <folder> [--live]\nStorageBench report <folder>\nStorageBench discover-dependencies <home-folder>"); return }
         let root = URL(fileURLWithPath: args[2])
+        if args[1] == "discover-dependencies" {
+            let started = Date()
+            let result = try await ProjectDependencyDiscovery.discover(home: root)
+            var usage = rusage(); getrusage(RUSAGE_SELF, &usage)
+            print("\(result.paths.count) node_modules · \(result.directoriesVisited) directories · \(String(format: "%.2f", Date().timeIntervalSince(started)))s · \(usage.ru_maxrss) peak RSS bytes · complete: \(result.complete) · skipped: \(result.skippedDirectories)")
+            for path in result.paths.prefix(8) { print(path) }
+            return
+        }
         if args[1] == "report" {
             let clock = ContinuousClock()
             let scanStart = clock.now
