@@ -8,7 +8,7 @@ struct DiskBuddyApp: App {
     @StateObject private var model = ExplorerModel()
     @StateObject private var updates = AppUpdates()
     var body: some Scene {
-        WindowGroup("storagedaddy") { ExplorerView().environmentObject(model).frame(minWidth: 880, minHeight: 600).onAppear { updates.start(model: model) } }
+        Window("storagedaddy", id: "main") { ExplorerView().environmentObject(model).frame(minWidth: 880, minHeight: 600).onAppear { updates.start(model: model) } }
             .defaultSize(width: 1320, height: 850)
             .windowStyle(.hiddenTitleBar)
             .commands {
@@ -30,6 +30,11 @@ struct DiskBuddyApp: App {
                     Button("Cancel Scan") { model.cancel() }.keyboardShortcut(".").disabled(!model.busy)
                 }
             }
+        MenuBarExtra {
+            StorageMenu(model: model)
+        } label: {
+            Label("StorageDaddy", systemImage: "internaldrive")
+        }
         Settings {
             StorageSettingsView(updates: updates).environmentObject(model)
         }
@@ -52,6 +57,22 @@ struct DiskBuddyApp: App {
         Self.applyIcon()
     }
     func applicationDidBecomeActive(_ notification: Notification) { Self.applyIcon() }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+private struct StorageMenu: View {
+    @ObservedObject var model: ExplorerModel
+
+    var body: some View {
+        Text(model.busy ? "Scan in progress" : model.scan == nil ? "Ready to scan" : "Scan results available")
+        Divider()
+        DaddyMenuOpenButton(appName: "StorageDaddy")
+        if model.busy {
+            Button("Cancel Scan") { model.cancel() }
+        }
+        Divider()
+        DaddyMenuQuitButton(appName: "StorageDaddy")
+    }
 }
 
 enum Workspace: String, CaseIterable, Identifiable {
